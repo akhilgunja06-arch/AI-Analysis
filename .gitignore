@@ -1,0 +1,49 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+# Test credentials are local-only too; the test DB URL and token secrets live here.
+.env.test
+!.env.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Prisma
+server/prisma/*.db
+server/prisma/migrations/dev.db*
+
+# Uploads (local object-storage stand-in)
+uploads/*
+!uploads/.gitkeep
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# Python (pre-existing entry point kept)
+__pycache__/
+*.py[cod]
+.venv/
+venv/

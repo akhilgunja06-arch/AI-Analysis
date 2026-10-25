@@ -1,0 +1,360 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================================
+   SkillSpring design tokens
+   Colour is expressed once, here, as CSS custom properties so light and dark
+   themes are a single source of truth for both Tailwind classes and raw CSS.
+   ========================================================================= */
+
+@layer base {
+  :root {
+    --ss-bg: 247 248 253;
+    --ss-bg-alt: 255 255 255;
+    --ss-raised: 255 255 255;
+    --ss-border: 226 232 240;
+    --ss-border-strong: 203 213 225;
+    --ss-text: 15 23 42;
+    --ss-text-muted: 71 85 105;
+    --ss-text-subtle: 100 116 139;
+    --ss-accent: 79 70 229;
+    --ss-accent-contrast: 255 255 255;
+    --ss-ring: 99 102 241;
+    color-scheme: light;
+  }
+
+  .dark {
+    --ss-bg: 11 16 32;
+    --ss-bg-alt: 19 26 51;
+    --ss-raised: 26 34 70;
+    --ss-border: 37 48 99;
+    --ss-border-strong: 51 65 128;
+    --ss-text: 226 232 247;
+    --ss-text-muted: 167 179 209;
+    --ss-text-subtle: 139 152 186;
+    --ss-accent: 129 140 248;
+    --ss-accent-contrast: 11 16 32;
+    --ss-ring: 129 140 248;
+    color-scheme: dark;
+  }
+
+  * {
+    border-color: rgb(var(--ss-border));
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-[rgb(var(--ss-bg))] text-[rgb(var(--ss-text))] font-sans antialiased;
+    min-height: 100vh;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Visible, high-contrast keyboard focus everywhere. */
+  :focus-visible {
+    outline: 2px solid rgb(var(--ss-ring));
+    outline-offset: 2px;
+    border-radius: 0.375rem;
+  }
+
+  /* Only show focus rings for keyboard users, never for mouse clicks. */
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  h1, h2, h3, h4 {
+    @apply font-display tracking-tight;
+  }
+
+  ::selection {
+    background: rgb(var(--ss-ring) / 0.28);
+  }
+
+  /* Slim, theme-aware scrollbars. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--ss-border-strong)) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: rgb(var(--ss-border-strong));
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+}
+
+@layer components {
+  /* ------------------------------------------------------------ surfaces */
+  .ss-card {
+    @apply rounded-2xl border bg-[rgb(var(--ss-bg-alt))] shadow-card transition-all duration-300;
+  }
+  .dark .ss-card {
+    @apply shadow-card-dark;
+  }
+
+  .ss-card-interactive {
+    @apply ss-card hover:-translate-y-0.5 hover:shadow-glow-sm;
+  }
+
+  .ss-glass {
+    background: rgb(var(--ss-bg-alt) / 0.72);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    @apply border;
+  }
+
+  .ss-raised {
+    @apply bg-[rgb(var(--ss-raised))];
+  }
+
+  /* -------------------------------------------------------------- buttons */
+  .ss-btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold
+           transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50
+           focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2;
+  }
+  .ss-btn-primary {
+    @apply ss-btn bg-gradient-brand text-white shadow-glow-sm hover:shadow-glow hover:brightness-110 active:scale-[0.985];
+  }
+  .ss-btn-secondary {
+    @apply ss-btn border bg-[rgb(var(--ss-bg-alt))] text-[rgb(var(--ss-text))]
+           hover:border-[rgb(var(--ss-ring))] hover:bg-brand-50/60 dark:hover:bg-brand-500/10;
+  }
+  .ss-btn-ghost {
+    @apply ss-btn text-[rgb(var(--ss-text-muted))] hover:bg-[rgb(var(--ss-border)/0.5)] hover:text-[rgb(var(--ss-text))];
+  }
+  .ss-btn-danger {
+    @apply ss-btn bg-rose-600 text-white hover:bg-rose-700 active:scale-[0.985];
+  }
+  .ss-btn-sm {
+    @apply px-3 py-1.5 text-xs;
+  }
+  .ss-btn-lg {
+    @apply px-6 py-3 text-base;
+  }
+
+  /* --------------------------------------------------------------- inputs */
+  .ss-input {
+    @apply w-full rounded-xl border bg-[rgb(var(--ss-bg-alt))] px-3.5 py-2.5 text-sm
+           text-[rgb(var(--ss-text))] placeholder:text-[rgb(var(--ss-text-subtle))]
+           transition-colors duration-150
+           focus:border-[rgb(var(--ss-ring))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--ss-ring)/0.25)]
+           disabled:cursor-not-allowed disabled:opacity-60;
+  }
+  .ss-input-error {
+    @apply border-rose-500 focus:border-rose-500 focus:ring-rose-500/25;
+  }
+  .ss-label {
+    @apply mb-1.5 block text-sm font-medium text-[rgb(var(--ss-text))];
+  }
+  .ss-hint {
+    @apply mt-1.5 text-xs text-[rgb(var(--ss-text-subtle))];
+  }
+  .ss-error-text {
+    @apply mt-1.5 flex items-start gap-1.5 text-xs font-medium text-rose-600 dark:text-rose-400;
+  }
+
+  /* --------------------------------------------------------------- badges */
+  .ss-badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+  .ss-badge-neutral {
+    @apply ss-badge bg-[rgb(var(--ss-border)/0.6)] text-[rgb(var(--ss-text-muted))];
+  }
+  .ss-badge-brand {
+    @apply ss-badge bg-brand-100 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300;
+  }
+  .ss-badge-success {
+    @apply ss-badge bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300;
+  }
+  .ss-badge-warning {
+    @apply ss-badge bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300;
+  }
+  .ss-badge-danger {
+    @apply ss-badge bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300;
+  }
+  .ss-badge-info {
+    @apply ss-badge bg-electric-500/15 text-electric-600 dark:text-electric-300;
+  }
+
+  /* ----------------------------------------------------------- typography */
+  .ss-heading-hero {
+    @apply font-display text-4xl font-extrabold leading-[1.08] tracking-tight sm:text-5xl lg:text-6xl;
+  }
+  .ss-heading-page {
+    @apply font-display text-2xl font-bold tracking-tight sm:text-3xl;
+  }
+  .ss-heading-section {
+    @apply font-display text-xl font-bold tracking-tight;
+  }
+  .ss-muted {
+    @apply text-[rgb(var(--ss-text-muted))];
+  }
+  .ss-subtle {
+    @apply text-[rgb(var(--ss-text-subtle))];
+  }
+  .ss-gradient-text {
+    @apply bg-gradient-brand bg-clip-text text-transparent;
+  }
+
+  /* --------------------------------------------------------- backgrounds */
+  .ss-hero-bg {
+    @apply relative overflow-hidden;
+  }
+  .ss-hero-bg::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: theme('backgroundImage.gradient-mesh');
+    opacity: 0.85;
+    animation: gradient-shift 18s ease infinite;
+    background-size: 200% 200%;
+    pointer-events: none;
+  }
+  .ss-hero-bg::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: theme('backgroundImage.grid-faint');
+    background-size: 48px 48px;
+    mask-image: radial-gradient(ellipse at 50% 0%, black 10%, transparent 72%);
+    -webkit-mask-image: radial-gradient(ellipse at 50% 0%, black 10%, transparent 72%);
+    opacity: 0.5;
+    pointer-events: none;
+  }
+  .ss-hero-bg > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  /* ------------------------------------------------------------ skeleton */
+  .ss-skeleton {
+    @apply relative overflow-hidden rounded-lg bg-[rgb(var(--ss-border)/0.55)];
+  }
+  .ss-skeleton::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      rgb(var(--ss-bg-alt) / 0.55),
+      transparent
+    );
+    animation: shimmer 1.8s infinite;
+  }
+
+  /* ------------------------------------------------------------- divider */
+  .ss-divider {
+    @apply my-6 h-px w-full bg-[rgb(var(--ss-border))];
+  }
+
+  /* ---------------------------------------------------------- nav links */
+  .ss-nav-link {
+    @apply relative rounded-lg px-3 py-2 text-sm font-medium text-[rgb(var(--ss-text-muted))]
+           transition-colors duration-150 hover:bg-[rgb(var(--ss-border)/0.5)] hover:text-[rgb(var(--ss-text))];
+  }
+  .ss-nav-link-active {
+    @apply bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300;
+  }
+
+  /* --------------------------------------------------------- data table */
+  .ss-table {
+    @apply w-full border-collapse text-sm;
+  }
+  .ss-table th {
+    @apply border-b px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-[rgb(var(--ss-text-subtle))];
+  }
+  .ss-table td {
+    @apply border-b px-4 py-3 align-middle;
+  }
+  .ss-table tbody tr:hover {
+    @apply bg-[rgb(var(--ss-border)/0.28)];
+  }
+}
+
+@layer utilities {
+  .ss-scroll-x {
+    @apply overflow-x-auto;
+  }
+  .ss-no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .ss-no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  /* Truncate to a fixed number of lines. */
+  .ss-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .ss-clamp-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
+
+/* ============================================================================
+   Reduced motion.
+   Honours the operating-system preference and the in-app override, and removes
+   every decorative animation rather than merely shortening it.
+   ========================================================================= */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .ss-hero-bg::before,
+  .ss-hero-bg::after {
+    animation: none !important;
+  }
+  .ss-skeleton::after {
+    animation: none !important;
+    display: none;
+  }
+}
+
+/* The in-app toggle sets this attribute on <html>. */
+html[data-reduced-motion='true'] *,
+html[data-reduced-motion='true'] *::before,
+html[data-reduced-motion='true'] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+html[data-reduced-motion='true'] .ss-hero-bg::before,
+html[data-reduced-motion='true'] .ss-hero-bg::after {
+  animation: none !important;
+}
+
+/* Respect a forced-colours (high contrast) environment. */
+@media (forced-colors: active) {
+  .ss-btn-primary {
+    forced-color-adjust: none;
+    background: ButtonFace;
+    color: ButtonText;
+    border: 1px solid ButtonText;
+  }
+}

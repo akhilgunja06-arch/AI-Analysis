@@ -1,0 +1,787 @@
+// SkillSpring — PostgreSQL schema (Prisma ORM)
+// Conventions:
+//  * Every table has created_at / updated_at.
+//  * Emails are stored lower-cased; usernames are stored lower-cased for uniqueness.
+//  * Deleting a user cascades to owned content; references from other users are
+//    restricted or nulled so history survives.
+//  * Indexes are added for the columns used by list/filter endpoints (pagination).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------- enumerations
+
+enum Role {
+  MEMBER
+  MODERATOR
+  ADMIN
+}
+
+enum AccountStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+}
+
+enum SkillDirection {
+  TEACH
+  LEARN
+}
+
+enum SkillLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+  EXPERT
+}
+
+enum SessionFormat {
+  ONLINE
+  IN_PERSON
+  EITHER
+}
+
+enum ExchangeStatus {
+  PENDING
+  COUNTERED
+  ACCEPTED
+  ACTIVE
+  PAUSED
+  COMPLETED
+  DECLINED
+  WITHDRAWN
+  CANCELLED
+}
+
+enum ExchangeRole {
+  INITIATOR
+  RECIPIENT
+}
+
+enum ParticipantStatus {
+  INVITED
+  AGREED
+  COMPLETED
+  LEFT
+}
+
+enum MilestoneStatus {
+  PENDING
+  IN_PROGRESS
+  DONE
+}
+
+enum SessionStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum NotificationType {
+  EXCHANGE_REQUEST
+  EXCHANGE_ACCEPTED
+  EXCHANGE_DECLINED
+  EXCHANGE_COUNTERED
+  EXCHANGE_ACTIVE
+  EXCHANGE_COMPLETED
+  EXCHANGE_CANCELLED
+  SESSION_SCHEDULED
+  SESSION_UPDATED
+  SESSION_CANCELLED
+  SESSION_REMINDER
+  MESSAGE
+  REVIEW_RECEIVED
+  FOLLOW
+  COMMUNITY_REPLY
+  MODERATION
+  SYSTEM
+}
+
+enum ReportTargetType {
+  USER
+  MESSAGE
+  REVIEW
+  COMMUNITY_POST
+  COMMUNITY_COMMENT
+}
+
+enum ReportStatus {
+  OPEN
+  UNDER_REVIEW
+  RESOLVED
+  DISMISSED
+}
+
+enum ReportReason {
+  SPAM
+  HARASSMENT
+  INAPPROPRIATE_CONTENT
+  FAKE_PROFILE
+  NO_SHOW
+  OTHER
+}
+
+enum ModerationAction {
+  NONE
+  CONTENT_HIDDEN
+  CONTENT_REMOVED
+  WARNING_ISSUED
+  USER_SUSPENDED
+  USER_REINSTATED
+  REPORT_DISMISSED
+}
+
+enum PostStatus {
+  PUBLISHED
+  HIDDEN
+  REMOVED
+}
+
+// ------------------------------------------------------------------- identity
+
+model User {
+  id            String        @id @default(uuid()) @db.Uuid
+  email         String        @unique
+  username      String        @unique
+  passwordHash  String
+  role          Role          @default(MEMBER)
+  status        AccountStatus @default(PENDING_VERIFICATION)
+  emailVerifiedAt DateTime?
+  lastLoginAt   DateTime?
+  deactivatedAt DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  profile       Profile?
+  preference    UserPreference?
+  skills        UserSkill[]
+  availability  Availability[]
+  sessions      AuthSession[]
+  tokens        AuthToken[]
+  initiations   ExchangeRequest[] @relation("ExchangeRequestInitiator")
+  receipts      ExchangeRequest[] @relation("ExchangeRequestRecipient")
+  participations ExchangeParticipant[]
+  createdExchanges Exchange[]    @relation("ExchangeCreatedBy")
+  sessionsTaught Session[]       @relation("SessionHost")
+  conversationParts ConversationParticipant[]
+  messages      Message[]
+  notifications Notification[]
+  reviewsWritten Review[]        @relation("ReviewAuthor")
+  reviewsReceived Review[]       @relation("ReviewSubject")
+  followers     Follow[]         @relation("FollowFollower")
+  following     Follow[]         @relation("FollowFollowing")
+  posts         CommunityPost[]
+  comments      CommunityComment[]
+  postVotes     CommunityPostVote[]
+  commentVotes  CommunityCommentVote[]
+  reportsMade   Report[]         @relation("ReportReporter")
+  reportsAgainst Report[]        @relation("ReportTargetUser")
+  blocksMade    UserBlock[]      @relation("BlockBlocker")
+  blocksReceived UserBlock[]     @relation("BlockBlocked")
+  auditLogs     AuditLog[]       @relation("AuditActor")
+  supportTickets SupportTicket[]
+  milestonesAuthored Milestone[] @relation("MilestoneAuthor")
+  exchangeNotes ExchangeNote[] @relation("ExchangeNoteAuthor")
+
+  @@index([status])
+  @@index([role])
+  @@index([createdAt])
+}
+
+model Profile {
+  id            String        @id @default(uuid()) @db.Uuid
+  userId        String        @unique @db.Uuid
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  displayName   String
+  headline      String?
+  bio           String?       @db.Text
+  avatarUrl     String?
+  location      String?
+  timezone      String        @default("UTC")
+  languages     String[]      @default([])
+  websiteUrl    String?
+  githubUrl     String?
+  linkedinUrl   String?
+  preferredFormat SessionFormat @default(ONLINE)
+  learningGoals String?       @db.Text
+  weeklyAvailabilityHours Int?
+  onboardingCompletedAt DateTime?
+  onboardingStep Int         @default(1)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([location])
+  @@index([timezone])
+}
+
+model UserPreference {
+  id                 String  @id @default(uuid()) @db.Uuid
+  userId             String  @unique @db.Uuid
+  user               User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // profile visibility
+  publicProfile      Boolean @default(true)
+  showEmail          Boolean @default(false)
+  showLocation       Boolean @default(true)
+  showLanguages      Boolean @default(true)
+  showAvailability   Boolean @default(true)
+  showCompletedExchanges Boolean @default(true)
+  allowExchangeRequests Boolean @default(true)
+  allowMessagesFrom  String  @default("MEMBERS") // MEMBERS | FOLLOWING | NOBODY
+  // notification channel preferences
+  emailOnExchange    Boolean @default(true)
+  emailOnMessage     Boolean @default(false)
+  emailOnSession     Boolean @default(true)
+  emailOnReview      Boolean @default(true)
+  emailOnCommunity   Boolean @default(false)
+  inAppOnEverything  Boolean @default(true)
+  weeklyDigest       Boolean @default(true)
+  reducedMotion      Boolean @default(false)
+  theme              String  @default("system") // light | dark | system
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model AuthSession {
+  id            String   @id @default(uuid()) @db.Uuid
+  userId        String   @db.Uuid
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Refresh tokens are stored as SHA-256 hashes, never in plaintext.
+  refreshTokenHash String @unique
+  userAgent     String?
+  ipAddress     String?
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  lastUsedAt    DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+enum AuthTokenPurpose {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
+model AuthToken {
+  id        String           @id @default(uuid()) @db.Uuid
+  userId    String           @db.Uuid
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purpose   AuthTokenPurpose
+  tokenHash String           @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@index([userId, purpose])
+}
+
+// --------------------------------------------------------------------- skills
+
+model SkillCategory {
+  id          String   @id @default(uuid()) @db.Uuid
+  slug        String   @unique
+  name        String   @unique
+  description String?
+  icon        String?  // lucide icon name used by the frontend
+  color       String?  // hex colour used for chips and cards
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  skills      Skill[]
+  posts       CommunityPost[]
+
+  @@index([sortOrder])
+  @@index([isActive, sortOrder])
+}
+
+model Skill {
+  id          String   @id @default(uuid()) @db.Uuid
+  slug        String   @unique
+  name        String   @unique
+  description String?
+  categoryId  String   @db.Uuid
+  category    SkillCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  userSkills  UserSkill[]
+  communityPosts CommunityPost[] @relation("CommunityPostSkill")
+  offeredInRequests   ExchangeRequest[] @relation("RequestOfferedSkill")
+  requestedInRequests ExchangeRequest[] @relation("RequestRequestedSkill")
+
+  @@index([categoryId])
+  @@index([name])
+}
+
+model UserSkill {
+  id          String         @id @default(uuid()) @db.Uuid
+  userId      String         @db.Uuid
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skillId     String         @db.Uuid
+  skill       Skill          @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  direction   SkillDirection
+  level       SkillLevel     @default(INTERMEDIATE)
+  description String?        @db.Text
+  outcomes    String?        @db.Text
+  portfolioUrl String?
+  yearsExperience Int?
+  isActive    Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  // One row per user/skill/direction: duplicate detection is a DB constraint.
+  @@unique([userId, skillId, direction])
+  @@index([skillId, direction, isActive])
+  @@index([userId, direction])
+}
+
+model Availability {
+  id        String        @id @default(uuid()) @db.Uuid
+  userId    String        @db.Uuid
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // 0 = Sunday … 6 = Saturday (matches JS Date.getDay())
+  weekday   Int
+  startMinute Int  // minutes from midnight, local to the user's timezone
+  endMinute   Int
+  format    SessionFormat @default(ONLINE)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([userId, weekday])
+}
+
+// ------------------------------------------------------------------ exchanges
+
+model ExchangeRequest {
+  id            String         @id @default(uuid()) @db.Uuid
+  initiatorId   String         @db.Uuid
+  initiator     User           @relation("ExchangeRequestInitiator", fields: [initiatorId], references: [id], onDelete: Cascade)
+  recipientId   String         @db.Uuid
+  recipient     User           @relation("ExchangeRequestRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  // skill the initiator will teach / wants to learn
+  offeredSkillId String?       @db.Uuid
+  offeredSkill   Skill?        @relation("RequestOfferedSkill", fields: [offeredSkillId], references: [id], onDelete: SetNull)
+  requestedSkillId String?     @db.Uuid
+  requestedSkill Skill?        @relation("RequestRequestedSkill", fields: [requestedSkillId], references: [id], onDelete: SetNull)
+  message       String?        @db.Text
+  goals         String?        @db.Text
+  sessionMinutes Int           @default(60)
+  sessionsPerWeek Int          @default(1)
+  totalSessions Int            @default(6)
+  preferredFormat SessionFormat @default(ONLINE)
+  status        ExchangeStatus @default(PENDING)
+  // Set when this request is a counter-proposal: points at the request it answers.
+  parentRequestId String?      @db.Uuid
+  parentRequest ExchangeRequest? @relation("RequestCounter", fields: [parentRequestId], references: [id], onDelete: SetNull)
+  counters      ExchangeRequest[] @relation("RequestCounter")
+  respondedAt   DateTime?
+  exchangeId    String?        @db.Uuid
+  exchange      Exchange?      @relation(fields: [exchangeId], references: [id], onDelete: SetNull)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([recipientId, status])
+  @@index([initiatorId, status])
+  @@index([createdAt])
+}
+
+model Exchange {
+  id            String         @id @default(uuid()) @db.Uuid
+  title         String
+  createdById   String         @db.Uuid
+  createdBy     User           @relation("ExchangeCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  status        ExchangeStatus @default(ACTIVE)
+  goals         String?        @db.Text
+  sessionMinutes Int           @default(60)
+  totalSessions Int            @default(6)
+  preferredFormat SessionFormat @default(ONLINE)
+  // credit model support: credits transferred when an exchange completes
+  creditValue   Int            @default(0)
+  startedAt     DateTime?
+  completedAt   DateTime?
+  pausedAt      DateTime?
+  cancelledAt   DateTime?
+  cancellationReason String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  participants  ExchangeParticipant[]
+  milestones    Milestone[]
+  notes         ExchangeNote[]
+  sessions      Session[]
+  reviews       Review[]
+  requests      ExchangeRequest[]
+  events        ExchangeEvent[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model ExchangeParticipant {
+  id            String            @id @default(uuid()) @db.Uuid
+  exchangeId    String            @db.Uuid
+  exchange      Exchange          @relation(fields: [exchangeId], references: [id], onDelete: Cascade)
+  userId        String            @db.Uuid
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role          ExchangeRole      @default(INITIATOR)
+  status        ParticipantStatus @default(INVITED)
+  // what this participant teaches / learns inside this exchange
+  teachesSkillId String?          @db.Uuid
+  learnsSkillId  String?          @db.Uuid
+  agreedAt      DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@unique([exchangeId, userId])
+  @@index([userId, status])
+}
+
+model ExchangeNote {
+  id          String   @id @default(uuid()) @db.Uuid
+  exchangeId  String   @db.Uuid
+  exchange    Exchange @relation(fields: [exchangeId], references: [id], onDelete: Cascade)
+  authorId    String   @db.Uuid
+  author      User     @relation("ExchangeNoteAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  body        String   @db.Text
+  resourceUrl String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([exchangeId, createdAt])
+}
+
+model Milestone {
+  id          String          @id @default(uuid()) @db.Uuid
+  exchangeId  String          @db.Uuid
+  exchange    Exchange        @relation(fields: [exchangeId], references: [id], onDelete: Cascade)
+  authorId    String          @db.Uuid
+  author      User            @relation("MilestoneAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  title       String
+  description String?         @db.Text
+  status      MilestoneStatus @default(PENDING)
+  dueAt       DateTime?
+  completedAt DateTime?
+  sortOrder   Int             @default(0)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([exchangeId, status])
+}
+
+model Session {
+  id          String        @id @default(uuid()) @db.Uuid
+  exchangeId  String        @db.Uuid
+  exchange    Exchange      @relation(fields: [exchangeId], references: [id], onDelete: Cascade)
+  hostId      String        @db.Uuid
+  host        User          @relation("SessionHost", fields: [hostId], references: [id], onDelete: Cascade)
+  title       String?
+  agenda      String?       @db.Text
+  notes       String?       @db.Text
+  startsAt    DateTime
+  endsAt      DateTime
+  timezone    String        @default("UTC")
+  format      SessionFormat @default(ONLINE)
+  meetingUrl  String?
+  location    String?
+  status      SessionStatus @default(SCHEDULED)
+  reminderSentAt DateTime?
+  completedAt DateTime?
+  cancelledAt DateTime?
+  cancelledById String?     @db.Uuid
+  cancellationReason String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([exchangeId, startsAt])
+  @@index([hostId, startsAt])
+  @@index([startsAt, status])
+}
+
+// Human-readable audit trail of an exchange lifecycle, shown as the timeline UI.
+model ExchangeEvent {
+  id         String   @id @default(uuid()) @db.Uuid
+  exchangeId String   @db.Uuid
+  exchange   Exchange @relation(fields: [exchangeId], references: [id], onDelete: Cascade)
+  actorId    String?  @db.Uuid
+  type       String   // e.g. "exchange.created", "session.completed"
+  summary    String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([exchangeId, createdAt])
+}
+
+// ---------------------------------------------------------------- messaging
+
+model Conversation {
+  id            String   @id @default(uuid()) @db.Uuid
+  // deterministic key for 1:1 conversations so duplicates cannot be created
+  directKey     String?  @unique
+  isGroup       Boolean  @default(false)
+  title         String?
+  exchangeId    String?  @db.Uuid
+  lastMessageAt DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  participants  ConversationParticipant[]
+  messages      Message[]
+
+  @@index([lastMessageAt])
+}
+
+model ConversationParticipant {
+  id             String       @id @default(uuid()) @db.Uuid
+  conversationId String       @db.Uuid
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String       @db.Uuid
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastReadAt     DateTime?
+  muted          Boolean      @default(false)
+  blocked        Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+}
+
+model Message {
+  id             String       @id @default(uuid()) @db.Uuid
+  conversationId String       @db.Uuid
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String       @db.Uuid
+  sender         User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  body           String       @db.Text
+  attachmentUrl  String?
+  attachmentName String?
+  attachmentType String?
+  // simple moderation flag; hidden messages stay in the DB for audit purposes
+  hiddenAt       DateTime?
+  hiddenById     String?      @db.Uuid
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([conversationId, createdAt])
+  @@index([senderId])
+}
+
+// ------------------------------------------------------------- notifications
+
+model Notification {
+  id        String           @id @default(uuid()) @db.Uuid
+  userId    String           @db.Uuid
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  body      String?
+  link      String?
+  metadata  Json?
+  readAt    DateTime?
+  emailedAt DateTime?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@index([userId, readAt, createdAt])
+}
+
+// ------------------------------------------------------------------- reviews
+
+model Review {
+  id         String   @id @default(uuid()) @db.Uuid
+  exchangeId String   @db.Uuid
+  exchange   Exchange @relation(fields: [exchangeId], references: [id], onDelete: Cascade)
+  authorId   String   @db.Uuid
+  author     User     @relation("ReviewAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  subjectId  String   @db.Uuid
+  subject    User     @relation("ReviewSubject", fields: [subjectId], references: [id], onDelete: Cascade)
+  rating     Int
+  teachingRating Int?
+  communicationRating Int?
+  reliabilityRating Int?
+  comment    String?  @db.Text
+  hiddenAt   DateTime?
+  hiddenById String?  @db.Uuid
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // One review per author per exchange; self-reviews blocked in service layer + check constraint below.
+  @@unique([exchangeId, authorId])
+  @@index([subjectId, createdAt])
+}
+
+model Follow {
+  id          String   @id @default(uuid()) @db.Uuid
+  followerId  String   @db.Uuid
+  follower    User     @relation("FollowFollower", fields: [followerId], references: [id], onDelete: Cascade)
+  followingId String   @db.Uuid
+  following   User     @relation("FollowFollowing", fields: [followingId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([followerId, followingId])
+  @@index([followingId])
+}
+
+// ----------------------------------------------------------------- community
+
+model CommunityPost {
+  id         String     @id @default(uuid()) @db.Uuid
+  authorId   String     @db.Uuid
+  author     User       @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  categoryId String?    @db.Uuid
+  category   SkillCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  skillId    String?    @db.Uuid
+  skill      Skill?     @relation("CommunityPostSkill", fields: [skillId], references: [id], onDelete: SetNull)
+  title      String
+  body       String     @db.Text
+  postType   String     @default("DISCUSSION") // DISCUSSION | QUESTION | RESOURCE
+  resourceUrl String?
+  status     PostStatus @default(PUBLISHED)
+  pinned     Boolean    @default(false)
+  commentCount Int      @default(0)
+  voteCount  Int        @default(0)
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  comments   CommunityComment[]
+  votes      CommunityPostVote[]
+
+  @@index([createdAt])
+  @@index([categoryId, createdAt])
+  @@index([status])
+}
+
+model CommunityComment {
+  id        String   @id @default(uuid()) @db.Uuid
+  postId    String   @db.Uuid
+  post      CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  authorId  String   @db.Uuid
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  parentId  String?  @db.Uuid
+  parent    CommunityComment? @relation("CommentThread", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   CommunityComment[] @relation("CommentThread")
+  body      String   @db.Text
+  isAnswer  Boolean  @default(false)
+  voteCount Int      @default(0)
+  status    PostStatus @default(PUBLISHED)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  votes     CommunityCommentVote[]
+
+  @@index([postId, createdAt])
+  @@index([authorId])
+}
+
+model CommunityPostVote {
+  id        String   @id @default(uuid()) @db.Uuid
+  postId    String   @db.Uuid
+  post      CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  value     Int      @default(1) // 1 = helpful/up, -1 = down
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([postId, userId])
+}
+
+model CommunityCommentVote {
+  id        String   @id @default(uuid()) @db.Uuid
+  commentId String   @db.Uuid
+  comment   CommunityComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  value     Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([commentId, userId])
+}
+
+// --------------------------------------------------- moderation & trust/safety
+
+model Report {
+  id            String           @id @default(uuid()) @db.Uuid
+  reporterId    String           @db.Uuid
+  reporter      User             @relation("ReportReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  targetType    ReportTargetType
+  targetUserId  String?          @db.Uuid
+  targetUser    User?            @relation("ReportTargetUser", fields: [targetUserId], references: [id], onDelete: SetNull)
+  targetId      String?          @db.Uuid
+  reason        ReportReason
+  details       String?          @db.Text
+  status        ReportStatus     @default(OPEN)
+  resolutionNote String?
+  actionTaken   ModerationAction @default(NONE)
+  handledById   String?          @db.Uuid
+  handledAt     DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@index([status, createdAt])
+  @@index([targetType, targetId])
+}
+
+model UserBlock {
+  id        String   @id @default(uuid()) @db.Uuid
+  blockerId String   @db.Uuid
+  blocker   User     @relation("BlockBlocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blockedId String   @db.Uuid
+  blocked   User     @relation("BlockBlocked", fields: [blockedId], references: [id], onDelete: Cascade)
+  reason    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([blockerId, blockedId])
+  @@index([blockedId])
+}
+
+// --------------------------------------------------------- admin / compliance
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  actorId    String?  @db.Uuid
+  actor      User?    @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  action     String   // e.g. "user.suspended", "skill_category.created"
+  entityType String
+  entityId   String?
+  summary    String
+  metadata   Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([entityType, entityId])
+}
+
+model SupportTicket {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String?  @db.Uuid
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  name      String
+  email     String
+  subject   String
+  message   String   @db.Text
+  status    String   @default("OPEN")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+}
