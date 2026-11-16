@@ -105,7 +105,7 @@ profileRouter.post(
   uploadAvatar.single('avatar'),
   asyncHandler(async (req, res) => {
     if (!req.file) throw ApiError.badRequest('Choose an image to upload.');
-    const stored = await storeFile(req.file, 'avatars');
+    const stored = await storeFile(req.file, 'avatars', req.user!.id);
     const profile = await prisma.profile.update({
       where: { userId: req.user!.id },
       data: { avatarUrl: stored.url },

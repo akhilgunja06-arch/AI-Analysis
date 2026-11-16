@@ -59,6 +59,19 @@ Framer Motion), `docs/`, `uploads/`.
   `server/src/services/matching.service.ts` (`WEIGHTS`) and are published to the
   client via the match `criteria.weights`. The UI derives its displayed ceilings
   from that response; do not hardcode them in the frontend.
+- Media, favourites and the optional assistant are documented in
+  `docs/media.md`. Three rules matter when touching them:
+  - Only the `profile-images` bucket is public. Every other object is served
+    through a short-lived signed URL (`mediaUrlFor` / `signMediaUrl`); the static
+    `/uploads` mount refuses anything outside `profile-images`. Never store a
+    `/uploads/...` URL for private media.
+  - Videos are stored byte-for-byte and never re-encoded. `GET
+    /api/media/:id/integrity` re-hashes the stored object to prove it.
+  - When no AI provider is configured, the assistant returns `501
+    AI_NOT_CONFIGURED`. It never fabricates a reply. The image pipeline is
+    adaptive compression with `sharp`, not AI — do not describe it as AI.
+- The test helper `uploadFile` (in `src/tests/helpers.ts`) sends real multipart
+  requests; pass `method: 'PUT'` for the resumable-upload chunk route.
 
 ## Seed credentials
 

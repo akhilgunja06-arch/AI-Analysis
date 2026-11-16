@@ -27,9 +27,11 @@ yarn-error.log*
 server/prisma/*.db
 server/prisma/migrations/dev.db*
 
-# Uploads (local object-storage stand-in)
+# Uploads (local object-storage stand-in). UPLOAD_DIR defaults to ./uploads
+# relative to the server process, so both the root and server paths are ignored.
 uploads/*
 !uploads/.gitkeep
+server/uploads/
 
 # Editor / OS
 .vscode/*

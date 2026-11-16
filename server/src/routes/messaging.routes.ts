@@ -8,7 +8,7 @@ import { requireAuth, requireVerified } from '../middleware/auth';
 import { uuidSchema } from '../lib/validation';
 import { createNotification } from '../services/notification.service';
 import { emitToConversation, emitToUser } from '../realtime';
-import { storeFile, uploadAttachment } from '../services/storage.service';
+import { mediaUrlFor, storeFile, uploadAttachment } from '../services/storage.service';
 
 export const messagingRouter = Router();
 
@@ -284,7 +284,7 @@ messagingRouter.get(
           avatarUrl: m.sender.profile?.avatarUrl ?? null,
         },
         attachment: m.attachmentUrl
-          ? { url: m.attachmentUrl, name: m.attachmentName, type: m.attachmentType }
+          ? { url: mediaUrlFor(m.attachmentUrl), name: m.attachmentName, type: m.attachmentType }
           : null,
         createdAt: m.createdAt,
       })),
@@ -389,14 +389,14 @@ messagingRouter.post(
     await assertConversationMember(id, req.user!.id);
     if (!req.file) throw ApiError.badRequest('Choose a file to send.');
 
-    const stored = await storeFile(req.file, 'attachments');
+    const stored = await storeFile(req.file, 'attachments', req.user!.id);
 
     const message = await prisma.message.create({
       data: {
         conversationId: id,
         senderId: req.user!.id,
         body: req.body?.caption?.slice(0, 4000) || `Shared ${stored.name}`,
-        attachmentUrl: stored.url,
+        attachmentUrl: stored.key,
         attachmentName: stored.name,
         attachmentType: stored.mimeType,
       },
@@ -425,7 +425,11 @@ messagingRouter.post(
         displayName: message.sender.profile?.displayName ?? message.sender.username,
         avatarUrl: message.sender.profile?.avatarUrl ?? null,
       },
-      attachment: { url: message.attachmentUrl, name: message.attachmentName, type: message.attachmentType },
+      attachment: {
+        url: mediaUrlFor(message.attachmentUrl),
+        name: message.attachmentName,
+        type: message.attachmentType,
+      },
       createdAt: message.createdAt,
     };
     emitToConversation(id, 'message:new', { conversationId: id, message: payload });

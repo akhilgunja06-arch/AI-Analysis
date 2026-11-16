@@ -65,9 +65,16 @@ export function createApp() {
   app.use(express.urlencoded({ extended: false, limit: '1mb' }));
   app.use(cookieParser());
 
-  // Locally stored uploads are served read-only.
+  // Locally stored uploads are served read-only. Only the public profile-image
+  // bucket is exposed here; private media (user images/videos, thumbnails and
+  // message attachments) is served through short-lived signed URLs instead, so a
+  // stored path is never a permanent public link.
   app.use(
     '/uploads',
+    (req, res, next) => {
+      if (req.path.startsWith('/profile-images/')) return next();
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'That file could not be found.' } });
+    },
     express.static(env.uploadDirAbs, {
       index: false,
       dotfiles: 'deny',

@@ -158,7 +158,44 @@ export async function resetDatabase() {
       "ExchangeEvent", "ExchangeNote", "Milestone", "Session", "ExchangeParticipant",
       "ExchangeRequest", "Exchange",
       "Availability", "UserSkill", "Skill", "SkillCategory",
+      "AiMessage", "AiConversation", "Favorite", "MediaUploadSession", "MediaAsset",
       "AuthToken", "AuthSession", "UserPreference", "Profile", "User"
     RESTART IDENTITY CASCADE;
   `);
+}
+
+/**
+ * Uploads a file through the real multipart endpoint, so the test exercises the
+ * same parsing, sniffing and storage path a browser would.
+ */
+export async function uploadFile<T = any>(
+  baseUrl: string,
+  path: string,
+  field: string,
+  file: { buffer: Buffer; filename: string; contentType: string },
+  options: { token?: string; fields?: Record<string, string>; method?: string } = {},
+): Promise<ApiResponse<T>> {
+  const form = new FormData();
+  form.append(field, new Blob([new Uint8Array(file.buffer)], { type: file.contentType }), file.filename);
+  for (const [k, v] of Object.entries(options.fields ?? {})) form.append(k, v);
+
+  const headers: Record<string, string> = {};
+  if (options.token) headers.Authorization = `Bearer ${options.token}`;
+
+  const res = await fetch(`${baseUrl}${path}`, {
+    method: options.method ?? 'POST',
+    headers,
+    body: form,
+  });
+  const setCookie = res.headers.getSetCookie?.() ?? [];
+  let body: unknown = null;
+  const text = await res.text();
+  if (text) {
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = text;
+    }
+  }
+  return { status: res.status, body: body as T, cookies: setCookie };
 }

@@ -15,6 +15,9 @@ import { settingsRouter } from './settings.routes';
 import { learningRouter } from './learning.routes';
 import { adminRouter } from './admin.routes';
 import { supportRouter } from './support.routes';
+import { mediaRouter } from './media.routes';
+import { favoritesRouter } from './favorites.routes';
+import { aiRouter } from './ai.routes';
 import { dashboardRouter, publicStatsRouter } from './dashboard.routes';
 
 export const apiRouter = Router();
@@ -26,6 +29,9 @@ apiRouter.use('/skills', skillsRouter);
 apiRouter.use('/members', membersRouter);
 apiRouter.use('/community', communityRouter);
 apiRouter.use('/support', supportRouter);
+// Media delivery: the signed-URL route is public (the signature is the
+// credential); every other media route requires authentication internally.
+apiRouter.use('/media', mediaRouter);
 
 // Authenticated member
 apiRouter.use('/profile', profileRouter);
@@ -38,6 +44,8 @@ apiRouter.use('/notifications', notificationsRouter);
 apiRouter.use('/reviews', reviewsRouter);
 apiRouter.use('/settings', settingsRouter);
 apiRouter.use('/learning', learningRouter);
+apiRouter.use('/favorites', favoritesRouter);
+apiRouter.use('/ai', aiRouter);
 
 // Milestones and notes hang off exchanges but live in their own router.
 apiRouter.use('/', milestonesRouter);
@@ -56,7 +64,8 @@ apiRouter.get('/', (_req, res) => {
       groups: [
         'auth', 'stats', 'skills', 'members', 'community', 'support',
         'profile', 'dashboard', 'matches', 'exchanges', 'sessions',
-        'messages', 'notifications', 'reviews', 'settings', 'learning', 'admin',
+        'messages', 'notifications', 'reviews', 'settings', 'learning',
+        'media', 'favorites', 'ai', 'admin',
       ],
     },
   });

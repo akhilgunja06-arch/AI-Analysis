@@ -26,6 +26,8 @@ const MessagesPage = lazy(() => import('@/pages/MessagesPage'));
 const LearningPage = lazy(() => import('@/pages/LearningPage'));
 const NotificationsPage = lazy(() => import('@/pages/NotificationsPage'));
 const ReviewsPage = lazy(() => import('@/pages/ReviewsPage'));
+const FavoritesPage = lazy(() => import('@/pages/FavoritesPage'));
+const MediaPage = lazy(() => import('@/pages/MediaPage'));
 const CommunityPage = lazy(() => import('@/pages/CommunityPage'));
 const CommunityPostPage = lazy(() => import('@/pages/CommunityPostPage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
@@ -88,6 +90,8 @@ export function App() {
           <Route path="/learning" element={<LearningPage />} />
           <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="/reviews" element={<ReviewsPage />} />
+          <Route path="/favorites" element={<FavoritesPage />} />
+          <Route path="/media" element={<MediaPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Route>
       </Route>

@@ -15,6 +15,7 @@ import {
   MessageSquare,
   Send,
   Star,
+  Bookmark,
   UserPlus,
   UserMinus,
   Users,
@@ -35,6 +36,7 @@ import {
   useMemberProfile,
   useReportContent,
   useStartConversation,
+  useToggleFavorite,
   useToggleFollow,
   useUnblockUser,
 } from '@/hooks/queries';
@@ -51,6 +53,7 @@ export default function MemberProfilePage() {
 
   const { data: member, isLoading, isError, error, refetch } = useMemberProfile(username);
   const toggleFollow = useToggleFollow();
+  const toggleFavorite = useToggleFavorite();
   const startConversation = useStartConversation();
   const createRequest = useCreateExchangeRequest();
   const blockUser = useBlockUser();
@@ -244,6 +247,34 @@ export default function MemberProfilePage() {
                     }
                   >
                     {member.viewer.isFollowing ? 'Following' : 'Follow'}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() =>
+                      toggleFavorite.mutate(
+                        { username: member.username, favorite: !member.viewer.isFavorite },
+                        {
+                          onSuccess: () =>
+                            toast.success(
+                              member.viewer.isFavorite ? 'Removed from favourites' : 'Saved to favourites',
+                              member.viewer.isFavorite
+                                ? `${member.displayName} is no longer in your favourites.`
+                                : `${member.displayName} is now in your favourites.`,
+                            ),
+                        },
+                      )
+                    }
+                    loading={toggleFavorite.isPending}
+                    aria-pressed={member.viewer.isFavorite}
+                    leftIcon={
+                      <Bookmark
+                        className="h-4 w-4"
+                        aria-hidden="true"
+                        fill={member.viewer.isFavorite ? 'currentColor' : 'none'}
+                      />
+                    }
+                  >
+                    {member.viewer.isFavorite ? 'Saved' : 'Save'}
                   </Button>
                   <Button
                     variant="secondary"

@@ -195,7 +195,7 @@ membersRouter.get(
     const stats = await memberStats(row.id);
     const member = shapeMember(row, stats);
 
-    const [reviews, portfolio, isFollowing, blocked, activeExchangeCount] = await Promise.all([
+    const [reviews, portfolio, isFollowing, blocked, activeExchangeCount, isFavorite] = await Promise.all([
       prisma.review.findMany({
         where: { subjectId: row.id, hiddenAt: null },
         orderBy: { createdAt: 'desc' },
@@ -236,6 +236,12 @@ membersRouter.get(
       prisma.exchangeParticipant.count({
         where: { userId: row.id, exchange: { status: { in: ['ACTIVE', 'ACCEPTED', 'PAUSED'] } } },
       }),
+      req.user
+        ? prisma.favorite.findUnique({
+            where: { userId_favoriteUserId: { userId: req.user.id, favoriteUserId: row.id } },
+            select: { id: true },
+          })
+        : Promise.resolve(null),
     ]);
 
     return ok(res, {
@@ -262,6 +268,7 @@ membersRouter.get(
         isFollowing: Boolean(isFollowing),
         isBlocked: Boolean(blocked),
         blockedByViewer: blocked?.blockerId === req.user?.id,
+        isFavorite: Boolean(isFavorite),
         canMessage: Boolean(req.user) && !isSelf && !blocked,
       },
     });

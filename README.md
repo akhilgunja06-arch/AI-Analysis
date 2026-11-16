@@ -240,5 +240,6 @@ clearly that they are unavailable instead of pretending to work.
 
 - [`docs/architecture.md`](docs/architecture.md) — components and request flow
 - [`docs/database.md`](docs/database.md) — entity relationships
+- [`docs/media.md`](docs/media.md) — storage buckets, image optimisation, video uploads, favourites and the assistant
 - [`docs/development-checklist.md`](docs/development-checklist.md) — page-by-page status
 - [`docs/deployment.md`](docs/deployment.md) — deployment notes

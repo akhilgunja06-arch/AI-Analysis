@@ -170,3 +170,12 @@ export function detectTimezone(): string {
 export function truncate(value: string, max: number): string {
   return value.length > max ? `${value.slice(0, max - 1)}…` : value;
 }
+
+/** Human-readable byte size, e.g. 1.4 MB. */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const exponent = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+  const value = bytes / 1024 ** exponent;
+  return `${value.toFixed(exponent === 0 ? 0 : 1)} ${units[exponent]}`;
+}
