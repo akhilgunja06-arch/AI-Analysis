@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
-  ArrowLeft,
   Ban,
   BookOpen,
   Calendar,
@@ -21,6 +20,7 @@ import {
   Users,
 } from 'lucide-react';
 import { PageContainer } from '@/components/layout/Layouts';
+import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { Button } from '@/components/ui/Button';
 import { Card, CardBody, CardHeader, StatCard } from '@/components/ui/Card';
 import { Avatar } from '@/components/ui/Avatar';
@@ -182,14 +182,14 @@ export default function MemberProfilePage() {
 
   return (
     <PageContainer>
-      <button
-        type="button"
-        onClick={() => navigate(-1)}
-        className="mb-4 inline-flex items-center gap-1.5 text-sm ss-muted transition-colors hover:text-[rgb(var(--ss-text))]"
-      >
-        <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-        Back
-      </button>
+      <Breadcrumbs
+        className="mb-4"
+        items={[
+          { label: 'Home', to: '/' },
+          { label: 'Members', to: '/members' },
+          { label: `@${member.username}` },
+        ]}
+      />
 
       {/* ------------------------------------------------------ header */}
       <Card className="overflow-hidden">

@@ -31,6 +31,21 @@ Framer Motion), `docs/`, `uploads/`.
 
 - API responses are `{ data: ... }` (paginated adds `meta`). Errors are
   `{ error: { code, message } }`.
+- Support messages use one form: `web/src/components/ContactForm.tsx`. It is
+  rendered on both `/help#contact` and `/contact` so validation, prefill and the
+  submit path stay identical. Do not re-implement the form on a page.
+- Deeper pages show a trail via `web/src/components/layout/Breadcrumbs.tsx`
+  (`items` = ordered crumbs, last one is the current page). Admin pages get it
+  once from `admin/AdminLayout.tsx`, so child admin pages must not add their own.
+- Public copy and nav point "Contact us" at the `/contact` page, not
+  `/help#contact`; the help-centre anchor still exists for in-page links.
+- The assistant (`web/src/pages/AssistantPage.tsx`, `/assistant`) is honest
+  about configuration: it reads `useIntegrationStatus()` and shows a
+  `NotConfiguredState` when `aiAssistance.enabled` is false. Sending a message
+  still stores it, and the `501 AI_NOT_CONFIGURED` from the API is surfaced, not
+  swallowed. Keep the `AiConversationDetail` type in `web/src/lib/types.ts` in
+  step with the route — the detail endpoint returns `id, userId, title, messages`
+  only, no timestamps.
 - Nested Prisma relations must be flattened before they reach the client. A
   relation like `author: { profile: { displayName } }` becomes
   `author: { username, displayName, avatarUrl }` in the response. Leaking the

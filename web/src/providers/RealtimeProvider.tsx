@@ -7,7 +7,7 @@ import { useAuth } from './AuthProvider';
 // Same reasoning as API_URL: same-origin by default so the proxy can carry the
 // websocket upgrade. Override with VITE_SOCKET_URL when the API is elsewhere.
 const SOCKET_URL =
-  (import.meta.env.VITE_SOCKET_URL as string | undefined) ?? window.location.origin;
+  (import.meta.env.VITE_SOCKET_URL as string | undefined)?.trim() || window.location.origin;
 
 type RealtimeState = {
   socket: Socket | null;

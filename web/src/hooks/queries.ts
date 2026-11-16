@@ -10,6 +10,8 @@ import type {
   AdminOverview,
   AdminReport,
   AdminUser,
+  AiConversation,
+  AiConversationDetail,
   AuditEntry,
   CalendarSession,
   Category,
@@ -79,6 +81,8 @@ export const keys = {
   adminAudit: (filters: Record<string, unknown>) => ['admin', 'audit', filters] as const,
   favorites: ['favorites'] as const,
   myMedia: (filters: Record<string, unknown>) => ['media', 'mine', filters] as const,
+  aiConversations: ['ai', 'conversations'] as const,
+  aiConversation: (id: string) => ['ai', 'conversation', id] as const,
 };
 
 // ------------------------------------------------------------- public data
@@ -1054,6 +1058,64 @@ export function useDeleteMedia() {
     mutationFn: (id: string) => api.delete(`/media/${id}`),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['media'] });
+    },
+  });
+}
+
+// ------------------------------------------------------------- assistant
+
+export function useAiConversations() {
+  return useQuery({
+    queryKey: keys.aiConversations,
+    queryFn: () => api.get<AiConversation[]>('/ai/conversations', { query: { pageSize: 50 } }),
+    select: (res) => res.data,
+  });
+}
+
+export function useAiConversation(id: string | undefined) {
+  return useQuery({
+    queryKey: keys.aiConversation(id ?? ''),
+    queryFn: () => api.get<AiConversationDetail>(`/ai/conversations/${id}`),
+    enabled: Boolean(id),
+    select: (res) => res.data,
+  });
+}
+
+export function useCreateAiConversation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (title?: string) => api.post<AiConversation>('/ai/conversations', { title }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.aiConversations });
+    },
+  });
+}
+
+export function useDeleteAiConversation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/ai/conversations/${id}`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.aiConversations });
+    },
+  });
+}
+
+/**
+ * Sends a message to the assistant.
+ *
+ * The server stores the message and, when no model provider is configured,
+ * answers with `501 AI_NOT_CONFIGURED`. That is surfaced as an error so the UI
+ * can explain the situation rather than pretending a reply arrived.
+ */
+export function useSendAiMessage() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ conversationId, content }: { conversationId: string; content: string }) =>
+      api.post<AiConversationDetail>(`/ai/conversations/${conversationId}/messages`, { content }),
+    onSettled: (_result, _error, variables) => {
+      void queryClient.invalidateQueries({ queryKey: keys.aiConversation(variables.conversationId) });
+      void queryClient.invalidateQueries({ queryKey: keys.aiConversations });
     },
   });
 }

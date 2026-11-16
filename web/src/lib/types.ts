@@ -717,3 +717,29 @@ export type AvailabilityWindow = {
   endMinute: number;
   format: SessionFormat;
 };
+
+// --------------------------------------------------------------- assistant
+
+export type AiRole = 'USER' | 'ASSISTANT' | 'SYSTEM';
+
+export type AiConversation = {
+  id: string;
+  title: string;
+  messageCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AiMessage = {
+  id: string;
+  role: AiRole;
+  content: string;
+  createdAt: string;
+};
+
+export type AiConversationDetail = {
+  id: string;
+  userId: string;
+  title: string;
+  messages: AiMessage[];
+};

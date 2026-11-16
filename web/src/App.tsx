@@ -32,6 +32,9 @@ const CommunityPage = lazy(() => import('@/pages/CommunityPage'));
 const CommunityPostPage = lazy(() => import('@/pages/CommunityPostPage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
 const HelpPage = lazy(() => import('@/pages/HelpPage'));
+const AboutPage = lazy(() => import('@/pages/AboutPage'));
+const ContactPage = lazy(() => import('@/pages/ContactPage'));
+const AssistantPage = lazy(() => import('@/pages/AssistantPage'));
 const PrivacyPage = lazy(() => import('@/pages/PrivacyPage'));
 const TermsPage = lazy(() => import('@/pages/TermsPage'));
 const AdminLayout = lazy(() => import('@/pages/admin/AdminLayout'));
@@ -53,6 +56,8 @@ export function App() {
         <Route path="/community" element={<CommunityPage />} />
         <Route path="/community/posts/:id" element={<CommunityPostPage />} />
         <Route path="/help" element={<HelpPage />} />
+        <Route path="/about" element={<AboutPage />} />
+        <Route path="/contact" element={<ContactPage />} />
         <Route path="/privacy" element={<PrivacyPage />} />
         <Route path="/terms" element={<TermsPage />} />
       </Route>
@@ -92,6 +97,7 @@ export function App() {
           <Route path="/reviews" element={<ReviewsPage />} />
           <Route path="/favorites" element={<FavoritesPage />} />
           <Route path="/media" element={<MediaPage />} />
+          <Route path="/assistant" element={<AssistantPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Route>
       </Route>

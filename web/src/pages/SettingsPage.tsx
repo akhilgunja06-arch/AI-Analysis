@@ -1171,7 +1171,7 @@ export default function SettingsPage() {
                         Read the privacy policy
                       </Button>
                     </Link>
-                    <Link to="/help#contact">
+                    <Link to="/contact">
                       <Button variant="ghost" size="sm">
                         Contact us
                       </Button>

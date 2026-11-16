@@ -1,8 +1,7 @@
 import { useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import {
   AlertTriangle,
-  ArrowLeft,
   Calendar,
   CalendarPlus,
   CheckCircle2,
@@ -24,6 +23,7 @@ import {
   X,
 } from 'lucide-react';
 import { PageContainer } from '@/components/layout/Layouts';
+import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { Button } from '@/components/ui/Button';
 import { Card, CardBody, CardHeader } from '@/components/ui/Card';
 import { Avatar, AvatarGroup } from '@/components/ui/Avatar';
@@ -52,7 +52,6 @@ import type { SessionFormat } from '@/lib/types';
 
 export default function ExchangeWorkspacePage() {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
   const toast = useToast();
   const { user } = useAuth();
 
@@ -200,14 +199,13 @@ export default function ExchangeWorkspacePage() {
 
   return (
     <PageContainer>
-      <button
-        type="button"
-        onClick={() => navigate('/exchanges')}
-        className="mb-4 inline-flex items-center gap-1.5 text-sm ss-muted transition-colors hover:text-[rgb(var(--ss-text))]"
-      >
-        <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-        All exchanges
-      </button>
+      <Breadcrumbs
+        className="mb-4"
+        items={[
+          { label: 'Exchanges', to: '/exchanges' },
+          { label: exchange.title },
+        ]}
+      />
 
       {/* ------------------------------------------------------- header */}
       <Card>
