@@ -15,6 +15,7 @@ const COLUMNS = [
   {
     title: 'Learn more',
     links: [
+      { to: '/about', label: 'About us' },
       { to: '/help', label: 'Help centre' },
       { to: '/help#how-it-works', label: 'How exchanges work' },
       { to: '/help#limitations', label: 'Platform limitations' },
@@ -26,7 +27,7 @@ const COLUMNS = [
     links: [
       { to: '/privacy', label: 'Privacy policy' },
       { to: '/terms', label: 'Terms of use' },
-      { to: '/help#contact', label: 'Contact us' },
+      { to: '/contact', label: 'Contact us' },
     ],
   },
 ];
@@ -62,7 +63,7 @@ export function Footer() {
                 <Linkedin className="h-4 w-4" aria-hidden="true" />
               </a>
               <Link
-                to="/help#contact"
+                to="/contact"
                 aria-label="Contact SkillSpring"
                 className="rounded-lg border p-2 transition-colors hover:border-[rgb(var(--ss-ring))]"
               >

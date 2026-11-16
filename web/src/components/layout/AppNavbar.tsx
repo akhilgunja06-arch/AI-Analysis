@@ -3,6 +3,7 @@ import { Link, NavLink, useNavigate } from 'react-router-dom';
 import {
   BookOpen,
   Bookmark,
+  Bot,
   Calendar,
   ChevronDown,
   Compass,
@@ -162,6 +163,15 @@ export function AppNavbar() {
                   Reviews
                 </Link>
                 <Link
+                  to="/assistant"
+                  role="menuitem"
+                  onClick={() => setUserMenuOpen(false)}
+                  className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-[rgb(var(--ss-border)/0.55)]"
+                >
+                  <Bot className="h-4 w-4" aria-hidden="true" />
+                  Assistant
+                </Link>
+                <Link
                   to="/settings"
                   role="menuitem"
                   onClick={() => setUserMenuOpen(false)}
@@ -253,6 +263,23 @@ export function AppNavbar() {
                 </li>
               );
             })}
+            <li>
+              <NavLink
+                to="/assistant"
+                onClick={() => setMenuOpen(false)}
+                className={({ isActive }) =>
+                  cn(
+                    'flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+                    isActive
+                      ? 'bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300'
+                      : 'hover:bg-[rgb(var(--ss-border)/0.5)]',
+                  )
+                }
+              >
+                <Bot className="h-4 w-4" aria-hidden="true" />
+                Assistant
+              </NavLink>
+            </li>
             {isStaff ? (
               <li>
                 <NavLink

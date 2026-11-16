@@ -11,6 +11,7 @@ const PUBLIC_LINKS = [
   { to: '/explore', label: 'Explore skills' },
   { to: '/members', label: 'Members' },
   { to: '/community', label: 'Community' },
+  { to: '/about', label: 'About' },
   { to: '/help', label: 'Help' },
 ];
 

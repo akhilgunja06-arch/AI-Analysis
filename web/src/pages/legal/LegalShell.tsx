@@ -82,7 +82,7 @@ export function LegalShell({
                 Send us a message through the help centre and we will answer it directly.
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
-                <Link to="/help#contact">
+                <Link to="/contact">
                   <Button size="sm">Contact us</Button>
                 </Link>
                 <Link to={otherLink.to}>

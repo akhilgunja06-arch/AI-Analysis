@@ -21,7 +21,7 @@ export default function PrivacyPage() {
               <p>
                 For any privacy question, or to exercise any of the rights described below, contact us through
                 the{' '}
-                <Link to="/help#contact" className="font-medium text-brand-600 hover:underline dark:text-brand-300">
+                <Link to="/contact" className="font-medium text-brand-600 hover:underline dark:text-brand-300">
                   help centre
                 </Link>
                 .

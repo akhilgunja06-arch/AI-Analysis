@@ -1,6 +1,7 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { BarChart3, FolderTree, ScrollText, ShieldAlert, Users } from 'lucide-react';
 import { PageContainer } from '@/components/layout/Layouts';
+import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { Card, CardBody } from '@/components/ui/Card';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/providers/AuthProvider';
@@ -16,9 +17,16 @@ const LINKS = [
 /** Shell for the staff area. Access is enforced again on every API call. */
 export default function AdminLayout() {
   const { isAdmin, user } = useAuth();
+  const { pathname } = useLocation();
+  const section = LINKS.find((link) => (link.end ? pathname === link.to : pathname.startsWith(link.to) && link.to !== '/admin'));
+  const crumb = section ? section.label : 'Overview';
 
   return (
     <PageContainer>
+      <Breadcrumbs
+        className="mb-4"
+        items={[{ label: 'Dashboard', to: '/dashboard' }, { label: 'Administration', to: '/admin' }, { label: crumb }]}
+      />
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="ss-heading-page">Administration</h1>

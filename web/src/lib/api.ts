@@ -14,7 +14,7 @@
 // in front of a build) can forward /api to the backend without the browser
 // needing to know the API's host. Set VITE_API_URL when they live apart.
 export const API_URL: string =
-  (import.meta.env.VITE_API_URL as string | undefined) ?? '/api';
+  (import.meta.env.VITE_API_URL as string | undefined)?.trim() || '/api';
 
 export type ApiFieldIssue = { path: string; message: string };
 

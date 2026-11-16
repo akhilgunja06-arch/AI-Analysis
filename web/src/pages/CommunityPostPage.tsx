@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import {
-  ArrowLeft,
   BookOpen,
   Check,
   CheckCircle2,
@@ -12,6 +11,7 @@ import {
   ThumbsUp,
 } from 'lucide-react';
 import { PageContainer } from '@/components/layout/Layouts';
+import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { Button } from '@/components/ui/Button';
 import { Card, CardBody, CardHeader } from '@/components/ui/Card';
 import { Avatar } from '@/components/ui/Avatar';
@@ -35,7 +35,6 @@ import type { CommunityCommentItem } from '@/lib/types';
 
 export default function CommunityPostPage() {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
   const toast = useToast();
   const { isAuthenticated, isVerified } = useAuth();
 
@@ -112,14 +111,13 @@ export default function CommunityPostPage() {
 
   return (
     <PageContainer size="narrow">
-      <button
-        type="button"
-        onClick={() => navigate('/community')}
-        className="mb-4 inline-flex items-center gap-1.5 text-sm ss-muted transition-colors hover:text-[rgb(var(--ss-text))]"
-      >
-        <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-        Community
-      </button>
+      <Breadcrumbs
+        className="mb-4"
+        items={[
+          { label: 'Community', to: '/community' },
+          { label: post.title },
+        ]}
+      />
 
       {/* ------------------------------------------------------- the post */}
       <Card>
