@@ -48,6 +48,29 @@ const envSchema = z.object({
   UPLOAD_DIR: z.string().default('./uploads'),
   MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(5 * 1024 * 1024),
 
+  // --- Media pipeline ---
+  // Separate signing secret for private-media URLs. Falls back to the access
+  // token secret when unset, so a default install still signs correctly.
+  MEDIA_SIGNING_SECRET: z.string().default(''),
+  MEDIA_SIGNED_URL_TTL_SECONDS: z.coerce.number().int().positive().default(900),
+  MAX_IMAGE_UPLOAD_BYTES: z.coerce.number().int().positive().default(15 * 1024 * 1024),
+  MAX_VIDEO_UPLOAD_BYTES: z.coerce.number().int().positive().default(200 * 1024 * 1024),
+  MAX_VIDEO_DURATION_SECONDS: z.coerce.number().int().positive().default(600),
+  MEDIA_UPLOAD_TTL_MINUTES: z.coerce.number().int().positive().default(120),
+  MEDIA_TEMP_DIR: z.string().default('./uploads/.tmp'),
+  // When true the untouched upload is retained alongside the optimised copy so
+  // an operator can recover the original. Set false to save disk space.
+  KEEP_ORIGINAL_MEDIA: z
+    .string()
+    .default('true')
+    .transform((v) => v === 'true'),
+  IMAGE_OPTIMIZATION_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => v === 'true'),
+  // Optional explicit paths; when unset the system PATH is used.
+  FFPROBE_PATH: z.string().optional().default('ffprobe'),
+
   AI_PROVIDER: z.enum(['none', 'openai', 'anthropic']).default('none'),
   AI_API_KEY: z.string().optional().default(''),
   AI_MODEL: z.string().optional().default(''),
@@ -91,6 +114,8 @@ export const env = {
   accessTokenTtlSeconds: 15 * 60,
   refreshTokenTtlMs: raw.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000,
   uploadDirAbs: path.resolve(process.cwd(), raw.UPLOAD_DIR),
+  mediaTempDirAbs: path.resolve(process.cwd(), raw.MEDIA_TEMP_DIR),
+  mediaSigningSecret: raw.MEDIA_SIGNING_SECRET || raw.ACCESS_TOKEN_SECRET,
   aiEnabled: raw.AI_PROVIDER !== 'none' && Boolean(raw.AI_API_KEY),
 };
 

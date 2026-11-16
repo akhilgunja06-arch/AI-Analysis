@@ -114,8 +114,41 @@ export type MemberProfileResponse = PublicMember & {
     isFollowing: boolean;
     isBlocked: boolean;
     blockedByViewer: boolean;
+    isFavorite: boolean;
     canMessage: boolean;
   };
+};
+
+/** A stored image or video, with its compression report for images. */
+export type MediaAsset = {
+  id: string;
+  mediaType: 'IMAGE' | 'VIDEO';
+  bucket: string;
+  originalFileName: string;
+  mimeType: string;
+  fileExtension: string;
+  width: number | null;
+  height: number | null;
+  durationSeconds: number | null;
+  frameRate: number | null;
+  bitRate: number | null;
+  originalSizeBytes: number;
+  storedSizeBytes: number;
+  percentSaved: number;
+  checksumSha256: string | null;
+  compressionStatus: string;
+  processingStatus: string;
+  visibility: 'PRIVATE' | 'PUBLIC';
+  thumbnailUrl: string | null;
+  url: string;
+  createdAt: string;
+  compressionReport: {
+    originalSizeBytes: number;
+    optimizedSizeBytes: number;
+    percentSaved: number;
+    status: 'OPTIMIZED' | 'SKIPPED';
+    note: string;
+  } | null;
 };
 
 export type ReviewItem = {

@@ -2,10 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import {
   BookOpen,
+  Bookmark,
   Calendar,
   ChevronDown,
   Compass,
   GraduationCap,
+  Image,
   LayoutDashboard,
   LifeBuoy,
   LogOut,
@@ -34,6 +36,8 @@ export const MEMBER_NAV = [
   { to: '/calendar', label: 'Calendar', icon: Calendar },
   { to: '/messages', label: 'Messages', icon: MessageSquare },
   { to: '/learning', label: 'Learning', icon: GraduationCap },
+  { to: '/favorites', label: 'Favourites', icon: Bookmark },
+  { to: '/media', label: 'Media', icon: Image },
   { to: '/community', label: 'Community', icon: BookOpen },
 ];
 

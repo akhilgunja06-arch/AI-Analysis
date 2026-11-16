@@ -29,6 +29,7 @@ import type {
   Match,
   MatchCriteria,
   MemberProfileResponse,
+  MediaAsset,
   NotificationItem,
   PlatformStats,
   PublicMember,
@@ -76,6 +77,8 @@ export const keys = {
   adminReports: (filters: Record<string, unknown>) => ['admin', 'reports', filters] as const,
   adminCategories: ['admin', 'categories'] as const,
   adminAudit: (filters: Record<string, unknown>) => ['admin', 'audit', filters] as const,
+  favorites: ['favorites'] as const,
+  myMedia: (filters: Record<string, unknown>) => ['media', 'mine', filters] as const,
 };
 
 // ------------------------------------------------------------- public data
@@ -978,3 +981,79 @@ export function useSaveOnboarding() {
 
 /** Used to type-narrow generic query results in components. */
 export type QueryResult<T> = UseQueryOptions<T> & { data?: T };
+
+// ------------------------------------------------------- favourites & media
+
+export type FavoriteMember = {
+  id: string;
+  createdAt: string;
+  member: {
+    username: string;
+    displayName: string;
+    headline: string | null;
+    avatarUrl: string | null;
+    location: string | null;
+  };
+};
+
+export function useFavorites() {
+  return useQuery({
+    queryKey: keys.favorites,
+    queryFn: () => api.get<FavoriteMember[]>('/favorites', { query: { pageSize: 48 } }),
+    select: (res) => res.data,
+  });
+}
+
+/** Toggle a member as a favourite. Optimistically reflects in the profile view. */
+export function useToggleFavorite() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ username, favorite }: { username: string; favorite: boolean }) =>
+      favorite ? api.post(`/favorites/${username}`) : api.delete(`/favorites/${username}`),
+    onSuccess: (_result, variables) => {
+      void queryClient.invalidateQueries({ queryKey: keys.member(variables.username) });
+      void queryClient.invalidateQueries({ queryKey: keys.favorites });
+    },
+  });
+}
+
+export function useMyMedia(filters: { type?: 'IMAGE' | 'VIDEO' } = {}) {
+  return useQuery({
+    queryKey: keys.myMedia(filters),
+    queryFn: () => api.get<MediaAsset[]>('/media', { query: { ...filters, pageSize: 48 } }),
+    select: (res) => res.data,
+  });
+}
+
+export function useUploadMedia() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      file,
+      mediaType,
+      kind,
+    }: {
+      file: File;
+      mediaType: 'IMAGE' | 'VIDEO';
+      kind?: 'profile' | 'gallery';
+    }) => {
+      const form = new FormData();
+      form.append('file', file);
+      if (kind) form.append('kind', kind);
+      return api.upload<MediaAsset>(mediaType === 'IMAGE' ? '/media/images' : '/media/videos', form);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['media'] });
+    },
+  });
+}
+
+export function useDeleteMedia() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/media/${id}`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['media'] });
+    },
+  });
+}

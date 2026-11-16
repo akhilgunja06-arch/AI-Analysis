@@ -145,6 +145,44 @@ enum PostStatus {
   REMOVED
 }
 
+enum MediaType {
+  IMAGE
+  VIDEO
+}
+
+enum MediaVisibility {
+  PRIVATE
+  PUBLIC
+}
+
+enum CompressionStatus {
+  PENDING
+  PROCESSING
+  OPTIMIZED
+  SKIPPED
+  FAILED
+}
+
+enum ProcessingStatus {
+  PENDING
+  PROCESSING
+  READY
+  FAILED
+}
+
+enum UploadStatus {
+  IN_PROGRESS
+  COMPLETED
+  ABORTED
+  EXPIRED
+}
+
+enum AiRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
 // ------------------------------------------------------------------- identity
 
 model User {
@@ -190,6 +228,12 @@ model User {
   supportTickets SupportTicket[]
   milestonesAuthored Milestone[] @relation("MilestoneAuthor")
   exchangeNotes ExchangeNote[] @relation("ExchangeNoteAuthor")
+  mediaAssets   MediaAsset[]
+  uploadSessions MediaUploadSession[]
+  favoritesMade Favorite[]       @relation("FavoriteOwner")
+  favoritedBy   Favorite[]       @relation("FavoriteTarget")
+  aiConversations AiConversation[]
+  aiMessages    AiMessage[]
 
   @@index([status])
   @@index([role])
@@ -570,6 +614,8 @@ model Message {
   attachmentUrl  String?
   attachmentName String?
   attachmentType String?
+  attachmentMediaId String?   @db.Uuid
+  attachmentMedia MediaAsset? @relation("MessageAttachment", fields: [attachmentMediaId], references: [id], onDelete: SetNull)
   // simple moderation flag; hidden messages stay in the DB for audit purposes
   hiddenAt       DateTime?
   hiddenById     String?      @db.Uuid
@@ -784,4 +830,115 @@ model SupportTicket {
   updatedAt DateTime @updatedAt
 
   @@index([status, createdAt])
+}
+
+// ---------------------------------------------------------------------- media
+
+/// Metadata for a user's uploaded image or video. The bytes live in object
+/// storage; only the storage path, dimensions and sizes are recorded here.
+/// The original upload is always retained in `originalStoragePath` so an
+/// optimisation failure can never destroy it.
+model MediaAsset {
+  id              String      @id @default(uuid()) @db.Uuid
+  userId          String      @db.Uuid
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mediaType       MediaType
+  bucket          String      // logical bucket: user-images | user-videos | message-attachments | profile-images
+  originalFileName String
+  storagePath     String      // path of the served (optimised, or original for video) object
+  originalStoragePath String? // path of the untouched upload, kept for recovery
+  thumbnailPath   String?
+  originalSizeBytes BigInt
+  storedSizeBytes   BigInt
+  mimeType        String
+  originalMimeType String
+  fileExtension   String
+  width           Int?
+  height          Int?
+  durationSeconds Float?
+  frameRate       Float?
+  bitRate         Int?
+  checksumSha256  String?     // of the original upload, so video integrity is verifiable
+  compressionStatus CompressionStatus @default(PENDING)
+  processingStatus  ProcessingStatus  @default(PENDING)
+  visibility      MediaVisibility @default(PRIVATE)
+  errorMessage    String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  messageAttachments Message[] @relation("MessageAttachment")
+
+  @@index([userId, createdAt])
+  @@index([userId, mediaType])
+  @@index([processingStatus])
+}
+
+/// Tracks a chunked/resumable upload so a large video survives a dropped
+/// connection and cannot be stored twice for the same client upload id.
+model MediaUploadSession {
+  id             String       @id @default(uuid()) @db.Uuid
+  userId         String       @db.Uuid
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientUploadId String
+  mediaType      MediaType
+  bucket         String
+  originalFileName String
+  mimeType       String
+  totalBytes     BigInt
+  receivedBytes  BigInt       @default(0)
+  chunkCount     Int          @default(0)
+  status         UploadStatus @default(IN_PROGRESS)
+  storagePath    String?      // temp path where chunks are assembled
+  assetId        String?      // set once the upload is finalised
+  expiresAt      DateTime
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  // One session per (user, client upload id): retries reuse it, no duplicates.
+  @@unique([userId, clientUploadId])
+  @@index([userId, status])
+  @@index([expiresAt])
+}
+
+// ------------------------------------------------------------------ favorites
+
+model Favorite {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String   @db.Uuid
+  user           User     @relation("FavoriteOwner", fields: [userId], references: [id], onDelete: Cascade)
+  favoriteUserId String   @db.Uuid
+  favoriteUser   User     @relation("FavoriteTarget", fields: [favoriteUserId], references: [id], onDelete: Cascade)
+  createdAt      DateTime @default(now())
+
+  @@unique([userId, favoriteUserId])
+  @@index([userId, createdAt])
+  @@index([favoriteUserId])
+}
+
+// ----------------------------------------------------------------- AI chat
+
+model AiConversation {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String   @default("New conversation")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages  AiMessage[]
+
+  @@index([userId, updatedAt])
+}
+
+model AiMessage {
+  id             String         @id @default(uuid()) @db.Uuid
+  conversationId String         @db.Uuid
+  conversation   AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String         @db.Uuid
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           AiRole
+  content        String         @db.Text
+  createdAt      DateTime       @default(now())
+
+  @@index([conversationId, createdAt])
 }

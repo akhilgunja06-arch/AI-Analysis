@@ -97,6 +97,10 @@ erDiagram
 | `CommunityPost` / `CommunityComment` | Discussion with threaded replies and optional skill or category tags. |
 | `CommunityPostVote` / `CommunityCommentVote` | One vote per user per item, enforced by a unique constraint. |
 | `Review` | One review per author per exchange, enforced by a unique constraint. Self-reviews are rejected in the service layer. |
+| `MediaAsset` | Metadata for one uploaded image or video. Bytes live in storage, never in the row. Records original and stored sizes, a SHA-256 checksum, compression and processing status, and an optional thumbnail. |
+| `MediaUploadSession` | A resumable video upload in progress, with a byte offset and an expiry so abandoned uploads are reclaimed. |
+| `Favorite` | One saved member per user, enforced by a unique constraint. |
+| `AiConversation` / `AiMessage` | The optional assistant's history, scoped to one owner. |
 
 ### Trust and safety
 

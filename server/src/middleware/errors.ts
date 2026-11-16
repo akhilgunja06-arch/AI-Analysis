@@ -124,3 +124,15 @@ export const writeLimiter = rateLimit({
   skip: () => env.isTest,
   handler: (_req, _res, next) => next(ApiError.tooMany('You are posting too quickly. Please slow down.')),
 });
+
+/** Tighter limit for media uploads, which are expensive to process. */
+export const uploadLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => env.isTest,
+  keyGenerator: (req) => req.user?.id ?? req.ip ?? 'unknown',
+  handler: (_req, _res, next) =>
+    next(ApiError.tooMany('You are uploading too quickly. Please wait a moment and try again.')),
+});
