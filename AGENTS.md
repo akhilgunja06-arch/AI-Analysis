@@ -17,6 +17,35 @@ Framer Motion), `docs/`, `uploads/`.
 - `web/vite.config.ts` pins `server.allowedHosts` to explicit hostnames; add new
   runtime hostnames there rather than using `true`.
 
+## Environment bootstrap (hosted sandbox)
+
+There is no Docker daemon here, so PostgreSQL is installed from apt instead:
+
+```bash
+sudo apt-get install -y postgresql && sudo pg_ctlcluster 17 main start
+sudo -u postgres psql -c "CREATE ROLE skillspring LOGIN PASSWORD 'skillspring_dev' CREATEDB"
+sudo -u postgres createdb -O skillspring skillspring
+sudo -u postgres createdb -O skillspring skillspring_test
+cp .env.example server/.env   # then replace ACCESS_TOKEN_SECRET and PASSWORD_PEPPER
+cd server && npx prisma migrate deploy && npm run db:seed
+```
+
+Run the servers detached, not with `npm run dev`: `tsx watch` dies with
+`EBADF: bad file descriptor` when stdin is not a TTY. Use
+`setsid nohup npx tsx src/index.ts > /tmp/api.log 2>&1 < /dev/null` and
+`setsid nohup npx vite --port 12000 > /tmp/web.log 2>&1 < /dev/null`.
+
+The media/video tests shell out to `ffmpeg`/`ffprobe`; install `ffmpeg` or those
+three tests fail with `spawn ffmpeg ENOENT`.
+
+`skillspring_test` must have the migrations applied once before `npm test` —
+otherwise every suite fails with `relation "AuditLog" does not exist`:
+
+```bash
+DATABASE_URL="postgresql://skillspring:skillspring_dev@127.0.0.1:5432/skillspring_test?schema=public" \
+  npx prisma migrate deploy
+```
+
 ## Testing
 
 - Backend: `cd server && npm test`. Integration tests need PostgreSQL. The
