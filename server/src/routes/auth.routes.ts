@@ -15,7 +15,6 @@ import {
   verifyPassword,
 } from '../lib/auth';
 import {
-  authenticate,
   clearRefreshCookie,
   cookieOptions,
   optionalAuthenticate,
@@ -31,10 +30,9 @@ import {
 } from '../lib/validation';
 import { env } from '../config/env';
 import { logger } from '../lib/logger';
-import { passwordResetEmail, verificationEmail } from '../services/email.service';
+import { passwordResetEmail } from '../services/email.service';
 import { recordAudit } from '../services/audit.service';
 import { isDisposableEmail } from '../lib/disposable-email';
-import { consumeEmailOtp, issueEmailOtp, pruneExpiredOtps, verifyEmailOtp } from '../services/otp.service';
 
 export const authRouter = Router();
 
@@ -53,8 +51,9 @@ const registerSchema = z.object({
   }),
 });
 
+/** `identifier` is an email address or a username — both sign in the same way. */
 const loginSchema = z.object({
-  email: emailSchema,
+  identifier: z.string().trim().min(1, 'Enter your email or username.').max(254),
   password: z.string().min(1, 'Enter your password.').max(200),
 });
 
@@ -68,7 +67,6 @@ type SessionUser = {
   username: string;
   role: string;
   status: string;
-  emailVerifiedAt: Date | null;
 };
 
 function shapeSessionUser(user: SessionUser) {
@@ -78,7 +76,6 @@ function shapeSessionUser(user: SessionUser) {
     username: user.username,
     role: user.role,
     status: user.status,
-    emailVerified: Boolean(user.emailVerifiedAt),
   };
 }
 
@@ -112,6 +109,10 @@ async function issueSession(
 
 // ------------------------------------------------------------------ register
 
+/**
+ * Registration is complete on success: there is no email verification step, so
+ * the account is ACTIVE and the returned token is immediately usable.
+ */
 authRouter.post(
   '/register',
   authLimiter,
@@ -133,73 +134,31 @@ authRouter.post(
 
     const passwordHash = await hashPassword(password);
 
-    const user = await prisma.$transaction(async (tx) => {
-      const createdUser = await tx.user.create({
-        data: {
-          email,
-          username,
-          passwordHash,
-          status: 'PENDING_VERIFICATION',
-          profile: { create: { displayName } },
-          preference: { create: {} },
-        },
-        select: { id: true, email: true, username: true, role: true, status: true, emailVerifiedAt: true },
-      });
-
-      const token = generateOneTimeToken();
-      await tx.authToken.create({
-        data: {
-          userId: createdUser.id,
-          purpose: 'EMAIL_VERIFICATION',
-          tokenHash: token.hash,
-          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-        },
-      });
-
-      return { createdUser, verificationToken: token.token };
-    });
-
-    const delivery = await verificationEmail(email, displayName, user.verificationToken);
-
-    // A six-digit code is issued alongside the link: the code is what the
-    // sign-up screen asks for, the link stays available for email clients that
-    // render it. Both authorise the same account activation.
-    const otp = await issueEmailOtp({
-      userId: user.createdUser.id,
-      email,
-      displayName,
-      purpose: 'EMAIL_VERIFICATION',
-    }).catch((err) => {
-      logger.warn('otp.issue_failed_on_register', { userId: user.createdUser.id, err });
-      return null;
+    const user = await prisma.user.create({
+      data: {
+        email,
+        username,
+        passwordHash,
+        status: 'ACTIVE',
+        profile: { create: { displayName } },
+        preference: { create: {} },
+      },
+      select: { id: true, email: true, username: true, role: true, status: true },
     });
 
     await recordAudit({
-      actorId: user.createdUser.id,
+      actorId: user.id,
       action: 'auth.registered',
       entityType: 'User',
-      entityId: user.createdUser.id,
+      entityId: user.id,
       summary: `Account registered for ${username}`,
       ipAddress: req.ip,
       userAgent: req.headers['user-agent'],
     });
 
-    const session = await issueSession(user.createdUser, { userAgent: req.headers['user-agent'], ip: req.ip }, res);
+    const session = await issueSession(user, { userAgent: req.headers['user-agent'], ip: req.ip }, res);
 
-    return created(res, {
-      user: shapeSessionUser(user.createdUser),
-      accessToken: session.accessToken,
-      emailDelivery: delivery.delivered ? 'sent' : 'not_sent',
-      verification: {
-        required: env.REQUIRE_EMAIL_OTP,
-        emailSent: Boolean(otp?.delivered),
-        expiresInSeconds: otp?.expiresInSeconds ?? env.OTP_TTL_SECONDS,
-        resendAfterSeconds: otp?.resendAfterSeconds ?? env.OTP_RESEND_COOLDOWN_SECONDS,
-      },
-      // Development convenience only: real deployments deliver by email.
-      ...(env.isProd ? {} : { devVerificationToken: user.verificationToken }),
-      ...(env.isProd || !otp?.devCode ? {} : { devOtpCode: otp.devCode }),
-    });
+    return created(res, { user: shapeSessionUser(user), accessToken: session.accessToken });
   }),
 );
 
@@ -210,22 +169,24 @@ authRouter.post(
   authLimiter,
   validateBody(loginSchema),
   asyncHandler(async (req, res) => {
-    const { email, password } = req.body as z.infer<typeof loginSchema>;
+    const { identifier, password } = req.body as z.infer<typeof loginSchema>;
 
-    const user = await prisma.user.findUnique({
-      where: { email },
+    const lookup = identifier.toLowerCase();
+    // One query for either credential. A username can never contain "@", so the
+    // two namespaces cannot collide on a single account.
+    const user = await prisma.user.findFirst({
+      where: { OR: [{ email: lookup }, { username: lookup }] },
       select: {
         id: true,
         email: true,
         username: true,
         role: true,
         status: true,
-        emailVerifiedAt: true,
         passwordHash: true,
       },
     });
 
-    // Identical response for unknown email and wrong password.
+    // Identical response for an unknown account and a wrong password.
     const genericFailure = ApiError.unauthorized('Those credentials do not match our records.');
     if (!user) {
       await verifyPassword(password, '$2a$12$invalidinvalidinvalidinvalidinvalidinvalidinvalidinvalidinva');
@@ -268,7 +229,7 @@ authRouter.post(
         userId: true,
         revokedAt: true,
         expiresAt: true,
-        user: { select: { id: true, email: true, username: true, role: true, status: true, emailVerifiedAt: true } },
+        user: { select: { id: true, email: true, username: true, role: true, status: true } },
       },
     });
 
@@ -345,7 +306,6 @@ authRouter.get(
         username: true,
         role: true,
         status: true,
-        emailVerifiedAt: true,
         createdAt: true,
         lastLoginAt: true,
         profile: true,
@@ -359,147 +319,6 @@ authRouter.get(
       lastLoginAt: user.lastLoginAt,
       profile: user.profile,
       preferences: user.preference,
-    });
-  }),
-);
-
-// -------------------------------------------------------- email verification
-
-const otpVerifySchema = z.object({
-  email: emailSchema,
-  code: z.string().trim().regex(/^\d{6}$/, 'Enter the six-digit code from your email.'),
-});
-
-/**
- * POST /api/auth/verify-otp — activate an account with the emailed code.
- * Public: the code itself is the credential, and the account is not usable
- * until it is confirmed.
- */
-authRouter.post(
-  '/verify-otp',
-  authLimiter,
-  validateBody(otpVerifySchema),
-  asyncHandler(async (req, res) => {
-    const { email, code } = req.body as z.infer<typeof otpVerifySchema>;
-
-    const user = await prisma.user.findUnique({
-      where: { email },
-      select: { id: true, emailVerifiedAt: true, status: true, username: true },
-    });
-    // Same response for an unknown address, so this cannot enumerate accounts.
-    if (!user) {
-      throw ApiError.badRequest('That code is not valid. Request a new one.');
-    }
-    if (user.emailVerifiedAt) {
-      return ok(res, { verified: true, alreadyVerified: true });
-    }
-
-    await verifyEmailOtp({ userId: user.id, code });
-    void pruneExpiredOtps();
-
-    await recordAudit({
-      actorId: user.id,
-      action: 'auth.email_verified_otp',
-      entityType: 'User',
-      entityId: user.id,
-      summary: `Email verified by one-time code for @${user.username}`,
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent'],
-    });
-
-    return ok(res, { verified: true, alreadyVerified: false });
-  }),
-);
-
-/**
- * POST /api/auth/resend-otp — issue a new code, subject to the resend cooldown.
- * Always the same response so it cannot be used to enumerate accounts.
- */
-authRouter.post(
-  '/resend-otp',
-  authLimiter,
-  validateBody(emailOnlySchema),
-  asyncHandler(async (req, res) => {
-    const { email } = req.body as z.infer<typeof emailOnlySchema>;
-    const user = await prisma.user.findUnique({
-      where: { email },
-      select: { id: true, status: true, emailVerifiedAt: true, profile: { select: { displayName: true } } },
-    });
-
-    const response = { message: 'If that address needs verification, a new code is on its way.' };
-    if (!user || user.emailVerifiedAt) return ok(res, response);
-
-    const otp = await issueEmailOtp({
-      userId: user.id,
-      email,
-      displayName: user.profile?.displayName ?? 'there',
-      purpose: 'EMAIL_VERIFICATION',
-    });
-
-    return ok(res, {
-      ...response,
-      expiresInSeconds: otp.expiresInSeconds,
-      resendAfterSeconds: otp.resendAfterSeconds,
-      ...(env.isProd || !otp.devCode ? {} : { devOtpCode: otp.devCode }),
-    });
-  }),
-);
-
-authRouter.post(
-  '/verify-email',
-  validateBody(tokenSchema),
-  asyncHandler(async (req, res) => {
-    const { token } = req.body as z.infer<typeof tokenSchema>;
-    const record = await prisma.authToken.findUnique({
-      where: { tokenHash: sha256(token) },
-      select: { id: true, userId: true, purpose: true, expiresAt: true, usedAt: true },
-    });
-
-    if (!record || record.purpose !== 'EMAIL_VERIFICATION' || record.usedAt || record.expiresAt < new Date()) {
-      throw ApiError.badRequest('This verification link is invalid or has expired. Request a new one.');
-    }
-
-    await prisma.$transaction([
-      prisma.authToken.update({ where: { id: record.id }, data: { usedAt: new Date() } }),
-      prisma.user.update({
-        where: { id: record.userId },
-        data: { emailVerifiedAt: new Date(), status: 'ACTIVE' },
-      }),
-    ]);
-
-    return ok(res, { verified: true });
-  }),
-);
-
-authRouter.post(
-  '/resend-verification',
-  authLimiter,
-  validateBody(emailOnlySchema),
-  asyncHandler(async (req, res) => {
-    const { email } = req.body as z.infer<typeof emailOnlySchema>;
-    const user = await prisma.user.findUnique({
-      where: { email },
-      select: { id: true, status: true, emailVerifiedAt: true, profile: { select: { displayName: true } } },
-    });
-
-    // Always the same response, so this cannot be used to enumerate accounts.
-    const response = { message: 'If that address needs verification, a new link is on its way.' };
-    if (!user || user.emailVerifiedAt) return ok(res, response);
-
-    const token = generateOneTimeToken();
-    await prisma.authToken.create({
-      data: {
-        userId: user.id,
-        purpose: 'EMAIL_VERIFICATION',
-        tokenHash: token.hash,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-      },
-    });
-    await verificationEmail(email, user.profile?.displayName ?? 'there', token.token);
-
-    return ok(res, {
-      ...response,
-      ...(env.isProd ? {} : { devVerificationToken: token.token }),
     });
   }),
 );

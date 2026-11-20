@@ -27,7 +27,7 @@ import { Button } from '@/components/ui/Button';
 import { useCall } from '@/providers/CallProvider';
 import { Card, CardBody, CardHeader, StatCard } from '@/components/ui/Card';
 import { Avatar } from '@/components/ui/Avatar';
-import { Badge, FormatBadge, SkillChip, VerifiedBadge } from '@/components/ui/Badge';
+import { Badge, FormatBadge, SkillChip } from '@/components/ui/Badge';
 import { Modal, ConfirmDialog } from '@/components/ui/Modal';
 import { SelectField, TextAreaField } from '@/components/ui/Field';
 import { SkillPicker } from '@/components/SkillPicker';
@@ -212,7 +212,6 @@ export default function MemberProfilePage() {
               <div className="pb-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <h1 className="font-display text-2xl font-bold">{member.displayName}</h1>
-                  <VerifiedBadge verified={member.emailVerified} />
                 </div>
                 <p className="text-sm ss-subtle">@{member.username}</p>
               </div>

@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma';
 import { asyncHandler, validateBody, validateParams, validateQuery } from '../lib/http';
 import { created, noContent, ok, paginated, parsePagination } from '../lib/respond';
 import { ApiError } from '../lib/errors';
-import { requireAuth, requireVerified } from '../middleware/auth';
+import { requireAuth } from '../middleware/auth';
 import { uuidSchema } from '../lib/validation';
 import { computeExchangeProgress } from '../services/progress.service';
 import {
@@ -164,7 +164,7 @@ const createRequestSchema = z.object({
 
 exchangesRouter.post(
   '/requests',
-  requireVerified,
+  requireAuth,
   validateBody(createRequestSchema),
   asyncHandler(async (req, res) => {
     const body = req.body as z.infer<typeof createRequestSchema>;
@@ -360,7 +360,7 @@ const respondSchema = z.discriminatedUnion('action', [
 
 exchangesRouter.post(
   '/requests/:id/respond',
-  requireVerified,
+  requireAuth,
   validateParams(z.object({ id: uuidSchema })),
   validateBody(respondSchema),
   asyncHandler(async (req, res) => {
@@ -878,7 +878,7 @@ const actionSchema = z.object({
 
 exchangesRouter.post(
   '/:id/actions',
-  requireVerified,
+  requireAuth,
   validateParams(z.object({ id: uuidSchema })),
   validateBody(actionSchema),
   asyncHandler(async (req, res) => {

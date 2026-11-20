@@ -4,10 +4,13 @@ import { createApp } from '../app';
 import { prisma } from '../lib/prisma';
 import { hashPassword } from '../lib/auth';
 import { api, createAccount, TEST_PASSWORD, uniqueSuffix, type TestAccount } from './helpers';
+import { messageLimiter } from '../middleware/errors';
+import { messagingRouter } from '../routes/messaging.routes';
 
 /**
- * Email OTP, study-only moderation, call authorisation and the AI assistant's
- * honest failure modes. These exercise the real routes and the real database.
+ * Normal authentication, safety moderation, call authorisation and the AI
+ * assistant's honest failure modes. These exercise the real routes and the real
+ * database — no mocks.
  */
 
 let server: Server;
@@ -27,144 +30,55 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-/** Creates an account directly in the database with a known password. */
-async function seedUser(options: { verified?: boolean } = {}) {
-  const suffix = uniqueSuffix();
-  const email = `otp-${suffix}@example.com`;
-  const username = `otp${suffix}`.slice(0, 30).toLowerCase();
-  const user = await prisma.user.create({
-    data: {
-      email,
-      username,
-      passwordHash: await hashPassword(TEST_PASSWORD),
-      status: options.verified === false ? 'PENDING_VERIFICATION' : 'ACTIVE',
-      emailVerifiedAt: options.verified === false ? null : new Date(),
-      profile: { create: { displayName: `Otp ${suffix}` } },
-    },
-  });
-  return { id: user.id, email, username };
-}
-
-async function signIn(email: string): Promise<string> {
+async function signIn(identifier: string): Promise<string> {
   const res = await api<{ data: { accessToken: string } }>(baseUrl, 'POST', '/api/auth/login', {
-    body: { email, password: TEST_PASSWORD },
+    body: { identifier, password: TEST_PASSWORD },
   });
   if (res.status !== 200) throw new Error(`Login failed: ${JSON.stringify(res.body)}`);
   return res.body.data.accessToken;
 }
 
-// ------------------------------------------------------------------ email OTP
+// -------------------------------------------------- normal authentication
 
-describe('email OTP', () => {
-  it('issues a code on registration and stores only its hash', async () => {
-    const res = await api<{
-      data: { devOtpCode?: string; verification: { required: boolean; emailSent: boolean } };
-    }>(baseUrl, 'POST', '/api/auth/register', {
-      body: {
-        email: `otpreg-${uniqueSuffix()}@example.com`,
-        username: `otpreg${uniqueSuffix()}`.slice(0, 30).toLowerCase(),
-        password: TEST_PASSWORD,
-        displayName: 'OTP Registrant',
-        acceptedTerms: true,
-      },
-    });
-
-    expect(res.status).toBe(201);
-    expect(res.body.data.verification.required).toBe(true);
-    // In non-production the code is returned so the flow is testable, but the
-    // database must never hold the plaintext code.
-    const code = res.body.data.devOtpCode;
-    expect(code).toMatch(/^\d{6}$/);
-
-    const stored = await prisma.otpCode.findMany({
-      where: { purpose: 'EMAIL_VERIFICATION' },
-      orderBy: { createdAt: 'desc' },
-      take: 1,
-    });
-    expect(stored).toHaveLength(1);
-    expect(stored[0].codeHash).not.toBe(code);
-    expect(stored[0].codeHash).not.toContain(code);
-  });
-
-  it('verifies the account with the correct code and refuses reuse', async () => {
+describe('normal authentication', () => {
+  it('registers and signs in without any verification step', async () => {
     const suffix = uniqueSuffix();
-    const email = `otpv-${suffix}@example.com`;
-    const registered = await api<{ data: { devOtpCode?: string } }>(baseUrl, 'POST', '/api/auth/register', {
-      body: {
-        email,
-        username: `otpv${suffix}`.slice(0, 30).toLowerCase(),
-        password: TEST_PASSWORD,
-        displayName: 'OTP Verify',
-        acceptedTerms: true,
+    const email = `plain-${suffix}@example.com`;
+    const registered = await api<{ data: { user: { id: string }; accessToken: string } }>(
+      baseUrl,
+      'POST',
+      '/api/auth/register',
+      {
+        body: {
+          email,
+          username: `plain${suffix}`.slice(0, 30).toLowerCase(),
+          password: TEST_PASSWORD,
+          displayName: 'Plain Member',
+          acceptedTerms: true,
+        },
       },
-    });
-    const code = registered.body.data.devOtpCode;
-    expect(code).toBeTruthy();
+    );
 
-    const first = await api<{ data: { verified: boolean } }>(baseUrl, 'POST', '/api/auth/verify-otp', {
-      body: { email, code },
-    });
-    expect(first.status).toBe(200);
-    expect(first.body.data.verified).toBe(true);
+    expect(registered.status).toBe(201);
+    expect(registered.body.data.accessToken).toBeTruthy();
 
-    const user = await prisma.user.findUnique({ where: { email }, select: { id: true, status: true } });
-    expect(user?.status).toBe('ACTIVE');
+    const row = await prisma.user.findUnique({ where: { email }, select: { status: true } });
+    expect(row?.status).toBe('ACTIVE');
 
-    // A second submission is idempotent but reports that nothing was consumed.
-    const replay = await api<{ data: { alreadyVerified: boolean } }>(baseUrl, 'POST', '/api/auth/verify-otp', {
-      body: { email, code },
-    });
-    expect(replay.status).toBe(200);
-    expect(replay.body.data.alreadyVerified).toBe(true);
-
-    // The code row itself is spent, so it cannot be replayed against another purpose.
-    const spent = await prisma.otpCode.findFirst({
-      where: { userId: user!.id, purpose: 'EMAIL_VERIFICATION' },
-      orderBy: { createdAt: 'desc' },
-    });
-    expect(spent?.usedAt).not.toBeNull();
+    // Signing in with the username works too.
+    const stored = await prisma.user.findUnique({ where: { email }, select: { username: true } });
+    const token = await signIn(stored!.username);
+    expect(token).toBeTruthy();
   });
 
-  it('rejects a wrong code and does not activate the account', async () => {
-    const user = await seedUser({ verified: false });
-
-    const issued = await api<{ data: { devOtpCode?: string } }>(baseUrl, 'POST', '/api/auth/resend-otp', {
-      body: { email: user.email },
-    });
-    expect(issued.status).toBe(200);
-
-    // Pick a six-digit code that is definitely not the one that was issued.
-    const correct = issued.body.data.devOtpCode ?? '';
-    const wrongCode = correct === '000000' ? '111111' : '000000';
-
-    const wrong = await api(baseUrl, 'POST', '/api/auth/verify-otp', {
-      body: { email: user.email, code: wrongCode },
-    });
-    expect(wrong.status).toBe(400);
-
-    const row = await prisma.user.findUnique({ where: { id: user.id }, select: { status: true } });
-    expect(row?.status).toBe('PENDING_VERIFICATION');
+  it('does not answer on the removed verification endpoints', async () => {
+    for (const path of ['/api/auth/verify-otp', '/api/auth/resend-otp', '/api/auth/verify-email']) {
+      const res = await api(baseUrl, 'POST', path, { body: {} });
+      expect(res.status).toBe(404);
+    }
   });
 
-  it('enforces the resend cooldown', async () => {
-    const user = await seedUser({ verified: false });
-
-    const first = await api(baseUrl, 'POST', '/api/auth/resend-otp', { body: { email: user.email } });
-    expect(first.status).toBe(200);
-
-    const second = await api(baseUrl, 'POST', '/api/auth/resend-otp', { body: { email: user.email } });
-    expect(second.status).toBe(429);
-  });
-
-  it('does not reveal whether an account exists on resend', async () => {
-    const res = await api<{ data: { message: string } }>(baseUrl, 'POST', '/api/auth/resend-otp', {
-      body: { email: `nobody-${uniqueSuffix()}@example.com` },
-    });
-    expect(res.status).toBe(200);
-    expect(res.body.data.message).toMatch(/if that address needs verification/i);
-  });
-
-  it('rejects registration from a disposable email domain', async () => {
+  it('still rejects a disposable email domain', async () => {
     const res = await api<{ error: { code: string } }>(baseUrl, 'POST', '/api/auth/register', {
       body: {
         email: `throwaway-${uniqueSuffix()}@mailinator.com`,
@@ -181,7 +95,7 @@ describe('email OTP', () => {
 
 // ----------------------------------------------------------------- moderation
 
-describe('study-only moderation', () => {
+describe('chat safety moderation', () => {
   /** Opens a fresh pair of accounts and returns a conversation between them. */
   async function freshPair() {
     const sender = await createAccount(baseUrl);
@@ -214,6 +128,21 @@ describe('study-only moderation', () => {
     expect(res.body.data.body).toContain('chain rule');
   });
 
+  it('allows ordinary conversation that has nothing to do with study', async () => {
+    const { sender, conversationId } = await freshPair();
+    // None of these would pass a study-only filter; all are normal chat.
+    for (const body of [
+      'I watched a great film last night about a heist gone wrong, have you seen it?',
+      'How is your week going? Work has been completely mad since Monday.',
+      'I am thinking of moving to Bangalore next year for a new job in product design.',
+      'My football team lost again. I do not want to talk about it.',
+    ]) {
+      const res = await send(sender.token, conversationId, body);
+      expect(res.status).toBe(201);
+      expect((res.body.data as { moderationNotice?: string }).moderationNotice).toBeUndefined();
+    }
+  });
+
   it('blocks a clearly sexual message before it is stored', async () => {
     const { sender, conversationId } = await freshPair();
     const res = await send(sender.token, conversationId, 'send me nude pics right now');
@@ -224,6 +153,38 @@ describe('study-only moderation', () => {
       where: { conversationId, body: { contains: 'nude' } },
     });
     expect(stored).toBeNull();
+  });
+
+  it('blocks a threat that hides the verb behind a short clause', async () => {
+    // A severity-3 block suspends the sender, so each phrasing needs its own
+    // account; otherwise the second request is refused as suspended.
+    for (const body of ['I will find you and hurt you', 'Ill hurt you', 'I will hunt you down and beat you']) {
+      const { sender, conversationId } = await freshPair();
+      const res = await send(sender.token, conversationId, body);
+      expect(res.status).toBe(422);
+      expect(res.body.error.code).toBe('MESSAGE_BLOCKED');
+    }
+  });
+
+  it('applies a per-member rate limit to message sending', async () => {
+    // The limiter is disabled under test, so assert it is actually mounted on
+    // the send route rather than hammering a shared counter.
+    type Layer = { route?: { path: string; methods: Record<string, boolean>; stack: { handle: unknown }[] } };
+    const stack = (messagingRouter as unknown as { stack: Layer[] }).stack;
+    const sendRoute = stack.find((l) => l.route?.path === '/conversations/:id' && l.route.methods.post);
+    expect(sendRoute).toBeDefined();
+    expect(sendRoute!.route!.stack.some((layer) => layer.handle === messageLimiter)).toBe(true);
+  });
+
+  it('leaves ordinary technical uses of the same verbs alone', async () => {
+    const { sender, conversationId } = await freshPair();
+    for (const body of [
+      'we should kill the process and restart the dev server',
+      'that bug will hurt performance if we leave it in the loop',
+    ]) {
+      const res = await send(sender.token, conversationId, body);
+      expect(res.status).toBe(201);
+    }
   });
 
   it('does not treat legitimate biology vocabulary as sexual', async () => {
@@ -250,11 +211,11 @@ describe('study-only moderation', () => {
     expect(events.some((e) => e.verdict === 'BLOCK')).toBe(true);
     // Evidence must never carry the raw message body in a form that leaks it.
     for (const event of events) {
-      expect(JSON.stringify(event)).not.toContain('hurt you badly');
+      expect(JSON.stringify(event)).not.toContain('kill you after class');
     }
   });
 
-  it('pauses messaging after repeated off-topic warnings', async () => {
+  it('warns before pausing messaging after repeated abuse', async () => {
     const { sender, conversationId } = await freshPair();
     // Severity-1 harassment is a warning, not a block: three of them in a day
     // earn a temporary restriction rather than a suspension.
@@ -322,6 +283,269 @@ describe('study-only moderation', () => {
 
     const anonymous = await api(baseUrl, 'GET', '/api/messages/moderation');
     expect(anonymous.status).toBe(401);
+  });
+});
+
+// ---------------------------------------------------------- messaging
+
+describe('one-to-one messaging', () => {
+  async function openConversation(a: TestAccount, b: TestAccount) {
+    const res = await api<{ data: { conversationId: string } }>(baseUrl, 'POST', '/api/messages/conversations', {
+      token: a.token,
+      body: { username: b.username },
+    });
+    expect(res.status).toBe(201);
+    return res.body.data.conversationId;
+  }
+
+  it('finds a member by username and display name', async () => {
+    const searcher = await createAccount(baseUrl);
+    const target = await createAccount(baseUrl, { displayName: 'Searchable Person' });
+
+    const byUsername = await api<{ data: { username: string; conversationId: string | null }[] }>(
+      baseUrl,
+      'GET',
+      `/api/messages/users?search=${encodeURIComponent(target.username)}`,
+      { token: searcher.token },
+    );
+    expect(byUsername.status).toBe(200);
+    expect(byUsername.body.data.some((u) => u.username === target.username)).toBe(true);
+
+    const byName = await api<{ data: { username: string }[] }>(
+      baseUrl,
+      'GET',
+      `/api/messages/users?search=Searchable`,
+      { token: searcher.token },
+    );
+    expect(byName.body.data.some((u) => u.username === target.username)).toBe(true);
+
+    // A search never offers the caller themselves.
+    const self = await api<{ data: { username: string }[] }>(
+      baseUrl,
+      'GET',
+      `/api/messages/users?search=${encodeURIComponent(searcher.username)}`,
+      { token: searcher.token },
+    );
+    expect(self.body.data.some((u) => u.username === searcher.username)).toBe(false);
+  });
+
+  it('hides blocked members from the search', async () => {
+    const blocker = await createAccount(baseUrl);
+    const blocked = await createAccount(baseUrl);
+    await api(baseUrl, 'POST', `/api/messages/users/${blocked.username}/block`, {
+      token: blocker.token,
+      body: {},
+    });
+
+    const res = await api<{ data: { username: string }[] }>(
+      baseUrl,
+      'GET',
+      `/api/messages/users?search=${encodeURIComponent(blocked.username)}`,
+      { token: blocker.token },
+    );
+    expect(res.body.data.some((u) => u.username === blocked.username)).toBe(false);
+  });
+
+  it('delivers, stores and marks a message read', async () => {
+    const a = await createAccount(baseUrl);
+    const b = await createAccount(baseUrl);
+    const conversationId = await openConversation(a, b);
+
+    const sent = await api<{ data: { id: string; body: string; deliveredAt: string | null } }>(
+      baseUrl,
+      'POST',
+      `/api/messages/conversations/${conversationId}`,
+      { token: a.token, body: { body: 'Hello there, how are you?' } },
+    );
+    expect(sent.status).toBe(201);
+    const messageId = sent.body.data.id;
+
+    // Persisted for both sides.
+    const thread = await api<{
+      data: { id: string; fromMe: boolean; readAt: string | null }[];
+      meta: { otherUser: { username: string } };
+    }>(baseUrl, 'GET', `/api/messages/conversations/${conversationId}`, { token: b.token });
+    expect(thread.status).toBe(200);
+    expect(thread.body.meta.otherUser.username).toBe(a.username);
+    expect(thread.body.data.some((m) => m.id === messageId && !m.fromMe)).toBe(true);
+
+    // Reading it stamps the receipt the sender can see.
+    const row = await prisma.message.findUnique({ where: { id: messageId }, select: { readAt: true } });
+    expect(row?.readAt).not.toBeNull();
+
+    // Unread count for b drops to zero after opening.
+    const unread = await api<{ data: { unread: number } }>(baseUrl, 'GET', '/api/messages/unread-count', {
+      token: b.token,
+    });
+    expect(unread.body.data.unread).toBe(0);
+  });
+
+  it('counts unread messages before the recipient opens the thread', async () => {
+    const a = await createAccount(baseUrl);
+    const b = await createAccount(baseUrl);
+    const conversationId = await openConversation(a, b);
+
+    await api(baseUrl, 'POST', `/api/messages/conversations/${conversationId}`, {
+      token: a.token,
+      body: { body: 'One' },
+    });
+    await api(baseUrl, 'POST', `/api/messages/conversations/${conversationId}`, {
+      token: a.token,
+      body: { body: 'Two' },
+    });
+
+    const unread = await api<{ data: { unread: number } }>(baseUrl, 'GET', '/api/messages/unread-count', {
+      token: b.token,
+    });
+    expect(unread.body.data.unread).toBe(2);
+
+    // The sender has nothing unread from their own messages.
+    const senderUnread = await api<{ data: { unread: number } }>(baseUrl, 'GET', '/api/messages/unread-count', {
+      token: a.token,
+    });
+    expect(senderUnread.body.data.unread).toBe(0);
+  });
+
+  it('pages older messages', async () => {
+    const a = await createAccount(baseUrl);
+    const b = await createAccount(baseUrl);
+    const conversationId = await openConversation(a, b);
+
+    for (let i = 0; i < 45; i += 1) {
+      await api(baseUrl, 'POST', `/api/messages/conversations/${conversationId}`, {
+        token: a.token,
+        body: { body: `Message ${i}` },
+      });
+    }
+
+    const first = await api<{ data: unknown[]; meta: { hasNext: boolean; page: number } }>(
+      baseUrl,
+      'GET',
+      `/api/messages/conversations/${conversationId}?page=1&pageSize=40`,
+      { token: a.token },
+    );
+    expect(first.body.data).toHaveLength(40);
+    expect(first.body.meta.hasNext).toBe(true);
+
+    const second = await api<{ data: { body: string }[]; meta: { page: number } }>(
+      baseUrl,
+      'GET',
+      `/api/messages/conversations/${conversationId}?page=2&pageSize=40`,
+      { token: a.token },
+    );
+    expect(second.body.meta.page).toBe(2);
+    expect(second.body.data).toHaveLength(5);
+    // The second page is genuinely older content.
+    expect(second.body.data[0].body).toBe('Message 0');
+  });
+
+  it('lets a sender delete their own message but not another member\'s', async () => {
+    const a = await createAccount(baseUrl);
+    const b = await createAccount(baseUrl);
+    const conversationId = await openConversation(a, b);
+
+    const sent = await api<{ data: { id: string } }>(baseUrl, 'POST', `/api/messages/conversations/${conversationId}`, {
+      token: a.token,
+      body: { body: 'This will be deleted' },
+    });
+    const messageId = sent.body.data.id;
+
+    // The other participant cannot delete it.
+    const refused = await api(baseUrl, 'DELETE', `/api/messages/messages/${messageId}`, { token: b.token });
+    expect(refused.status).toBe(404);
+
+    const deleted = await api(baseUrl, 'DELETE', `/api/messages/messages/${messageId}`, { token: a.token });
+    expect(deleted.status).toBe(204);
+
+    // Both sides see a tombstone, never the original body.
+    const thread = await api<{ data: { id: string; body: string | null; deleted: boolean }[] }>(
+      baseUrl,
+      'GET',
+      `/api/messages/conversations/${conversationId}`,
+      { token: b.token },
+    );
+    const row = thread.body.data.find((m) => m.id === messageId);
+    expect(row?.deleted).toBe(true);
+    expect(row?.body).toBeNull();
+  });
+
+  it('refuses an outsider any access to a private conversation', async () => {
+    const a = await createAccount(baseUrl);
+    const b = await createAccount(baseUrl);
+    const outsider = await createAccount(baseUrl);
+    const conversationId = await openConversation(a, b);
+
+    await api(baseUrl, 'POST', `/api/messages/conversations/${conversationId}`, {
+      token: a.token,
+      body: { body: 'Private note' },
+    });
+
+    for (const method of ['GET', 'POST', 'DELETE']) {
+      const res = await api(baseUrl, method, `/api/messages/conversations/${conversationId}`, {
+        token: outsider.token,
+        ...(method === 'POST' ? { body: { body: 'intrusion' } } : {}),
+      });
+      expect(res.status).toBe(404);
+    }
+
+    const read = await api(baseUrl, 'POST', `/api/messages/conversations/${conversationId}/read`, {
+      token: outsider.token,
+    });
+    expect(read.status).toBe(404);
+
+    // Unauthenticated access is refused outright.
+    const anonymous = await api(baseUrl, 'GET', `/api/messages/conversations/${conversationId}`);
+    expect(anonymous.status).toBe(401);
+  });
+
+  it('reuses one conversation for a pair however many times it is opened', async () => {
+    const a = await createAccount(baseUrl);
+    const b = await createAccount(baseUrl);
+
+    const first = await openConversation(a, b);
+    const second = await openConversation(b, a);
+    expect(second).toBe(first);
+  });
+
+  it('reports online state and last-seen for a conversation peer', async () => {
+    const a = await createAccount(baseUrl);
+    const b = await createAccount(baseUrl);
+    const conversationId = await openConversation(a, b);
+
+    await api(baseUrl, 'POST', `/api/messages/conversations/${conversationId}`, {
+      token: a.token,
+      body: { body: 'ping' },
+    });
+
+    const list = await api<{
+      data: { id: string; otherUser: { username: string; online: boolean; lastSeenAt: string | null } }[];
+    }>(baseUrl, 'GET', '/api/messages/conversations', { token: b.token });
+    expect(list.status).toBe(200);
+    const entry = list.body.data.find((c) => c.id === conversationId);
+    expect(entry?.otherUser.username).toBe(a.username);
+    // Presence is a boolean even when nobody is connected in a test process.
+    expect(typeof entry?.otherUser.online).toBe('boolean');
+    expect(entry?.otherUser).toHaveProperty('lastSeenAt');
+  });
+
+  it('blocks messaging in both directions after a block', async () => {
+    const a = await createAccount(baseUrl);
+    const b = await createAccount(baseUrl);
+    const conversationId = await openConversation(a, b);
+
+    await api(baseUrl, 'POST', `/api/messages/users/${b.username}/block`, { token: a.token, body: {} });
+
+    const aToB = await api(baseUrl, 'POST', `/api/messages/conversations/${conversationId}`, {
+      token: a.token,
+      body: { body: 'hello' },
+    });
+    expect(aToB.status).toBe(403);
+
+    const bToA = await api(baseUrl, 'POST', `/api/messages/conversations/${conversationId}`, {
+      token: b.token,
+      body: { body: 'hello back' },
+    });
+    expect(bToA.status).toBe(403);
   });
 });
 

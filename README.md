@@ -189,8 +189,9 @@ web/
 
 Implemented and connected to the API:
 
-- Email and password authentication with access and refresh tokens, email
-  verification and password reset.
+- Email and password authentication with access and refresh tokens and a
+  token-link password reset. There is no email verification step: a new account
+  is usable immediately.
 - Role-based access control for members, moderators and administrators, enforced
   in the API and not only by hiding interface elements.
 - Member profiles, skills taxonomy, teachable skills and learning goals.
@@ -212,8 +213,8 @@ These are deliberately inert until an operator configures them. Endpoints report
 clearly that they are unavailable instead of pretending to work.
 
 - **Email delivery** — `EMAIL_PROVIDER=console` logs messages in development.
-  Set `smtp` with the `SMTP_*` values to send real mail. Password reset and email
-  verification links are only delivered when a provider is configured.
+  Set `smtp` with the `SMTP_*` values to send real mail. Password reset links
+  are only delivered when a provider is configured.
 - **Object storage** — `STORAGE_PROVIDER=local` writes to `UPLOAD_DIR`. Set `s3`
   with the `S3_*` values for S3-compatible storage.
 - **AI assistance** — `AI_PROVIDER=none` by default. Matching is deterministic
@@ -224,8 +225,9 @@ clearly that they are unavailable instead of pretending to work.
 
 - No payments are processed anywhere in the flow. The optional credit-based model
   is not implemented; exchanges are tracked by time and sessions only.
-- Email verification and password reset require a configured email provider. With
-  the default `console` provider, links are logged rather than delivered.
+- Password reset requires a configured email provider. With the default
+  `console` provider, reset links are logged rather than delivered. Accounts do
+  not depend on email at all: registration and sign-in work without it.
 - The optional AI assistance endpoints return 501 unless configured.
 - Uploaded files are served from local disk in development. There is no virus
   scanning or image processing pipeline.

@@ -24,7 +24,6 @@ enum Role {
 }
 
 enum AccountStatus {
-  PENDING_VERIFICATION
   ACTIVE
   SUSPENDED
   DEACTIVATED
@@ -185,12 +184,6 @@ enum AiRole {
   SYSTEM
 }
 
-enum OtpPurpose {
-  EMAIL_VERIFICATION
-  PASSWORD_RESET
-  PHONE_VERIFICATION
-}
-
 enum CallType {
   AUDIO
   VIDEO
@@ -230,9 +223,11 @@ model User {
   username        String        @unique
   passwordHash    String
   role            Role          @default(MEMBER)
-  status          AccountStatus @default(PENDING_VERIFICATION)
-  emailVerifiedAt DateTime?
+  status          AccountStatus @default(ACTIVE)
   lastLoginAt     DateTime?
+  // Updated while a member has a live socket, so a peer can be told when they
+  // were last around rather than only whether they are online right now.
+  lastSeenAt      DateTime?
   deactivatedAt   DateTime?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -273,7 +268,6 @@ model User {
   favoritedBy           Favorite[]                @relation("FavoriteTarget")
   aiConversations       AiConversation[]
   aiMessages            AiMessage[]
-  otpCodes              OtpCode[]
   moderationEvents      ModerationEvent[]         @relation("ModerationSubject")
   messagingRestrictions MessagingRestriction[]    @relation("RestrictionUser")
   callsInitiated        CallSession[]             @relation("CallCaller")
@@ -356,7 +350,6 @@ model AuthSession {
 }
 
 enum AuthTokenPurpose {
-  EMAIL_VERIFICATION
   PASSWORD_RESET
 }
 
@@ -663,11 +656,19 @@ model Message {
   // simple moderation flag; hidden messages stay in the DB for audit purposes
   hiddenAt          DateTime?
   hiddenById        String?      @db.Uuid
+  // Set when the message reached the recipient's account, and when they opened
+  // the conversation. The sender's own copy is always "sent".
+  deliveredAt       DateTime?
+  readAt            DateTime?
+  // Set by the sender when they delete their own message; the row is kept so
+  // the other side sees a tombstone instead of history silently changing.
+  deletedAt         DateTime?
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
 
   @@index([conversationId, createdAt])
   @@index([senderId])
+  @@index([conversationId, readAt])
 }
 
 // ------------------------------------------------------------- notifications
@@ -987,31 +988,7 @@ model AiMessage {
   @@index([conversationId, createdAt])
 }
 
-// ------------------------------------------------------- email OTP verification
-
-/// A single-use numeric one-time code. Only the hash is stored, never the code
-/// itself. Rows are consumed by setting `usedAt`; expired rows are ignored.
-model OtpCode {
-  id          String     @id @default(uuid()) @db.Uuid
-  userId      String     @db.Uuid
-  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  purpose     OtpPurpose @default(EMAIL_VERIFICATION)
-  // Target of the code: an email address or phone number, lower-cased.
-  destination String
-  codeHash    String
-  attempts    Int        @default(0)
-  expiresAt   DateTime
-  usedAt      DateTime?
-  // When the code was issued, so a resend cooldown can be enforced.
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-
-  @@index([userId, purpose])
-  @@index([destination, purpose])
-  @@index([expiresAt])
-}
-
-// --------------------------------------------------- study-only chat moderation
+// ------------------------------------------------------- chat moderation
 
 /// One row per moderation decision that did not simply allow a message.
 /// Message bodies are referenced by id, not copied, so the audit trail never

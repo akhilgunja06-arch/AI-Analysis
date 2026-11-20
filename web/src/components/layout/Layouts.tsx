@@ -7,7 +7,6 @@ import { Footer } from '@/components/layout/Footer';
 import { LoadingState } from '@/components/ui/Feedback';
 import { PageTransition } from '@/components/animations/Motion';
 import { useAuth } from '@/providers/AuthProvider';
-import { EmailVerificationBanner } from '@/components/layout/EmailVerificationBanner';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 /** Layout for public, indexable pages. */
@@ -40,7 +39,6 @@ export function AppLayout() {
         Skip to content
       </a>
       <AppNavbar />
-      <EmailVerificationBanner />
       <main id="main" className="flex-1">
         <ErrorBoundary>
           <Suspense fallback={<LoadingState />}>

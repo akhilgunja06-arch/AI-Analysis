@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma';
 import { asyncHandler, validateBody, validateParams, validateQuery } from '../lib/http';
 import { created, noContent, ok, paginated, parsePagination } from '../lib/respond';
 import { ApiError } from '../lib/errors';
-import { requireAuth, requireVerified } from '../middleware/auth';
+import { requireAuth } from '../middleware/auth';
 import { uuidSchema } from '../lib/validation';
 import { createNotification } from '../services/notification.service';
 import { emitToUser } from '../realtime';
@@ -49,7 +49,7 @@ const createSessionSchema = z.object({
  */
 sessionsRouter.post(
   '/',
-  requireVerified,
+  requireAuth,
   validateBody(createSessionSchema),
   asyncHandler(async (req, res) => {
     const body = req.body as z.infer<typeof createSessionSchema>;
@@ -310,7 +310,7 @@ const patchSessionSchema = z.object({
 
 sessionsRouter.patch(
   '/:id',
-  requireVerified,
+  requireAuth,
   validateParams(z.object({ id: uuidSchema })),
   validateBody(patchSessionSchema),
   asyncHandler(async (req, res) => {
@@ -469,7 +469,7 @@ sessionsRouter.patch(
 
 sessionsRouter.delete(
   '/:id',
-  requireVerified,
+  requireAuth,
   validateParams(z.object({ id: uuidSchema })),
   asyncHandler(async (req, res) => {
     const { id } = res.locals.params as { id: string };

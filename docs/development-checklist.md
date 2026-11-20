@@ -15,7 +15,6 @@ until configured · **Not built** — deliberately out of scope.
 | 2 | Register | `/register` | Done | Strong password rules, terms and privacy links |
 | 2 | Forgot password | `/forgot-password` | Done | Delivery needs an email provider; see Optional |
 | 2 | Reset password | `/reset-password` | Done | Single-use expiring token |
-| 2 | Verify email | `/verify-email` | Done | Delivery needs an email provider |
 | 3 | Onboarding | `/onboarding` | Done | Photo, bio, languages, teach and learn skills, availability, completion ring, resumable |
 | 5 | Explore skills | `/explore` | Done | Search, filters, sorting, trending skills, skeletons, no-results state |
 | 6 | Members | `/members` | Done | Directory with filters and match-score explanation |

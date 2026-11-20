@@ -122,8 +122,7 @@ export const openApiDocument = {
           email: { type: 'string', format: 'email' },
           username: { type: 'string' },
           role: { type: 'string', enum: ['MEMBER', 'MODERATOR', 'ADMIN'] },
-          status: { type: 'string', enum: ['PENDING_VERIFICATION', 'ACTIVE', 'SUSPENDED', 'DEACTIVATED'] },
-          emailVerified: { type: 'boolean' },
+          status: { type: 'string', enum: ['ACTIVE', 'SUSPENDED', 'DEACTIVATED'] },
         },
       },
       AuthResult: {
@@ -155,7 +154,7 @@ export const openApiDocument = {
           location: { type: 'string', nullable: true, description: 'Null when the member hid it' },
           timezone: { type: 'string', nullable: true },
           languages: { type: 'array', items: { type: 'string' } },
-          emailVerified: { type: 'boolean' },
+          lastSeenAt: { type: 'string', format: 'date-time', nullable: true },
           memberSince: { type: 'string', format: 'date-time' },
           teaches: { type: 'array', items: { $ref: '#/components/schemas/SkillRef' } },
           wants: { type: 'array', items: { $ref: '#/components/schemas/SkillRef' } },
@@ -328,8 +327,11 @@ export const openApiDocument = {
           required: true,
           content: json({
             type: 'object',
-            required: ['email', 'password'],
-            properties: { email: { type: 'string', format: 'email' }, password: { type: 'string' } },
+            required: ['identifier', 'password'],
+            properties: {
+              identifier: { type: 'string', description: 'Email address or username' },
+              password: { type: 'string' },
+            },
           }),
         },
         responses: {
@@ -352,15 +354,6 @@ export const openApiDocument = {
     },
     '/api/auth/me': {
       get: { tags: ['auth'], summary: 'Current account and profile', responses: { 200: { description: 'Account' }, 401: { $ref: '#/components/responses/Unauthorized' } } },
-    },
-    '/api/auth/verify-email': {
-      post: {
-        tags: ['auth'],
-        summary: 'Verify an email address with a one-time token',
-        security: [],
-        requestBody: { required: true, content: json({ type: 'object', required: ['token'], properties: { token: { type: 'string' } } }) },
-        responses: { 200: { description: 'Verified' }, 400: { description: 'Invalid or expired token' } },
-      },
     },
     '/api/auth/forgot-password': {
       post: {
@@ -896,7 +889,7 @@ export const openApiDocument = {
         tags: ['admin'],
         summary: 'Suspend, reinstate, change role, or verify a user (admin only)',
         parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
-        requestBody: { required: true, content: json({ type: 'object', required: ['action'], properties: { action: { type: 'string', enum: ['suspend', 'reinstate', 'promote', 'verify-email'] }, reason: { type: 'string' }, role: { type: 'string', enum: ['MEMBER', 'MODERATOR', 'ADMIN'] } } }) },
+        requestBody: { required: true, content: json({ type: 'object', required: ['action'], properties: { action: { type: 'string', enum: ['suspend', 'reinstate', 'promote'] }, reason: { type: 'string' }, role: { type: 'string', enum: ['MEMBER', 'MODERATOR', 'ADMIN'] } } }) },
         responses: { 200: { description: 'Updated' }, 400: { description: 'Self-lockout prevented' }, 403: { $ref: '#/components/responses/Forbidden' } },
       },
     },

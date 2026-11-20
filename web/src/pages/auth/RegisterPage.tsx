@@ -90,26 +90,13 @@ export default function RegisterPage() {
   const onSubmit = async (values: FormValues) => {
     setFormError(null);
     try {
-      const result = await registerAccount({
+      await registerAccount({
         email: values.email,
         username: values.username,
         password: values.password,
         displayName: values.displayName,
         acceptedTerms: true,
       });
-
-      if (result.verification?.required) {
-        // The account exists but is inactive until the emailed code is entered.
-        toast.success('Account created', 'Enter the six-digit code we emailed you to activate it.');
-        if (result.devOtpCode) {
-          toast.info(
-            'Development mode',
-            'Email delivery is disabled here. The code was written to the server log.',
-          );
-        }
-        navigate(`/verify-email?email=${encodeURIComponent(values.email)}`, { replace: true });
-        return;
-      }
 
       toast.success('Account created', 'Add your skills next so we can find your matches.');
       navigate('/onboarding', { replace: true });
@@ -193,7 +180,7 @@ export default function RegisterPage() {
           placeholder="you@example.com"
           required
           error={errors.email?.message}
-          hint="Never shown on your public profile. Used to sign in and to verify the account."
+          hint="Never shown on your public profile. Used to sign in and to reset your password."
           {...register('email')}
         />
 

@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma';
 import { asyncHandler, validateBody, validateParams } from '../lib/http';
 import { created, noContent, ok } from '../lib/respond';
 import { ApiError } from '../lib/errors';
-import { requireAuth, requireVerified } from '../middleware/auth';
+import { requireAuth } from '../middleware/auth';
 import { uuidSchema } from '../lib/validation';
 
 export const milestonesRouter = Router();
@@ -29,7 +29,6 @@ const milestoneSchema = z.object({
 milestonesRouter.post(
   '/exchanges/:exchangeId/milestones',
   requireAuth,
-  requireVerified,
   validateParams(z.object({ exchangeId: uuidSchema })),
   validateBody(milestoneSchema),
   asyncHandler(async (req, res) => {
@@ -86,7 +85,6 @@ const milestonePatchSchema = z.object({
 milestonesRouter.patch(
   '/milestones/:id',
   requireAuth,
-  requireVerified,
   validateParams(z.object({ id: uuidSchema })),
   validateBody(milestonePatchSchema),
   asyncHandler(async (req, res) => {
@@ -140,7 +138,6 @@ milestonesRouter.patch(
 milestonesRouter.delete(
   '/milestones/:id',
   requireAuth,
-  requireVerified,
   validateParams(z.object({ id: uuidSchema })),
   asyncHandler(async (req, res) => {
     const { id } = res.locals.params as { id: string };
@@ -202,7 +199,6 @@ milestonesRouter.get(
 milestonesRouter.post(
   '/exchanges/:exchangeId/notes',
   requireAuth,
-  requireVerified,
   validateParams(z.object({ exchangeId: uuidSchema })),
   validateBody(noteSchema),
   asyncHandler(async (req, res) => {
@@ -233,7 +229,6 @@ milestonesRouter.post(
 milestonesRouter.delete(
   '/notes/:id',
   requireAuth,
-  requireVerified,
   validateParams(z.object({ id: uuidSchema })),
   asyncHandler(async (req, res) => {
     const { id } = res.locals.params as { id: string };

@@ -38,7 +38,7 @@ const POST_TYPES = [
 
 export default function CommunityPage() {
   const toast = useToast();
-  const { isAuthenticated, isVerified } = useAuth();
+  const { isAuthenticated } = useAuth();
   const [params, setParams] = useSearchParams();
 
   const [searchInput, setSearchInput] = useState(params.get('search') ?? '');
@@ -153,8 +153,6 @@ export default function CommunityPage() {
           {isAuthenticated ? (
             <Button
               onClick={() => setComposeOpen(true)}
-              disabled={!isVerified}
-              title={!isVerified ? 'Verify your email address to post' : undefined}
               leftIcon={<PenSquare className="h-4 w-4" aria-hidden="true" />}
             >
               New post
@@ -166,13 +164,6 @@ export default function CommunityPage() {
           )}
         </div>
       </div>
-
-      {isAuthenticated && !isVerified ? (
-        <p className="mt-4 rounded-xl border border-amber-500/35 bg-amber-50/60 px-4 py-3 text-sm dark:bg-amber-500/5">
-          You can read everything, but posting and voting need a verified email address. Verify it from your
-          settings page.
-        </p>
-      ) : null}
 
       {/* Search and filters */}
       <div className="mt-6 flex flex-wrap gap-3">
@@ -310,7 +301,7 @@ export default function CommunityPage() {
                 <Button onClick={reset} leftIcon={<RotateCcw className="h-4 w-4" aria-hidden="true" />}>
                   Clear filters
                 </Button>
-              ) : isAuthenticated && isVerified ? (
+              ) : isAuthenticated ? (
                 <Button onClick={() => setComposeOpen(true)} leftIcon={<PenSquare className="h-4 w-4" aria-hidden="true" />}>
                   Write the first post
                 </Button>

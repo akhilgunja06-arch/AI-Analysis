@@ -1277,7 +1277,7 @@ describe('moderation', () => {
     // And signing in again is refused.
     const login = await api(baseUrl, 'POST', '/api/auth/login', {
       token: undefined,
-      body: { email: victim.email, password: 'TestPassword#2026' },
+      body: { identifier: victim.email, password: 'TestPassword#2026' },
     });
     expect(login.status).toBe(403);
 
@@ -1419,7 +1419,7 @@ describe('data export and deletion', () => {
 
     // Signing in is refused while deactivated.
     const login = await api(baseUrl, 'POST', '/api/auth/login', {
-      body: { email: member.email, password: 'TestPassword#2026' },
+      body: { identifier: member.email, password: 'TestPassword#2026' },
     });
     expect(login.status).toBe(403);
   });

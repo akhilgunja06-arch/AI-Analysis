@@ -143,12 +143,6 @@ supportRouter.get(
         turn: env.turnUrls.length,
         enabled: env.webrtcConfigured,
       },
-      emailOtp: {
-        enabled: true,
-        // Whether a real code can actually be delivered. The console provider
-        // only logs, which is fine for development and useless for a real user.
-        deliveryProvider: env.EMAIL_PROVIDER,
-      },
       oauthProviders: [],
     }),
   ),

@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma';
 import { asyncHandler, validateBody } from '../lib/http';
 import { created, ok } from '../lib/respond';
 import { ApiError } from '../lib/errors';
-import { requireVerified } from '../middleware/auth';
+import { requireAuth } from '../middleware/auth';
 import { uuidSchema } from '../lib/validation';
 
 export const reportsRouter = Router();
@@ -96,7 +96,7 @@ async function resolveTarget(
  */
 reportsRouter.post(
   '/',
-  requireVerified,
+  requireAuth,
   validateBody(reportSchema),
   asyncHandler(async (req, res) => {
     const body = req.body as z.infer<typeof reportSchema>;
@@ -135,7 +135,7 @@ reportsRouter.post(
 /** GET /api/reports/mine — the caller's own submitted reports and their status. */
 reportsRouter.get(
   '/mine',
-  requireVerified,
+  requireAuth,
   asyncHandler(async (req, res) => {
     const reports = await prisma.report.findMany({
       where: { reporterId: req.user!.id },

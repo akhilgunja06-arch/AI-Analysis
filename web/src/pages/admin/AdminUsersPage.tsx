@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  BadgeCheck,
   ChevronLeft,
   ChevronRight,
-  Mail,
   Search,
   Shield,
   ShieldOff,
@@ -30,7 +28,6 @@ type PendingAction =
   | { kind: 'suspend'; user: AdminUser }
   | { kind: 'reinstate'; user: AdminUser }
   | { kind: 'promote'; user: AdminUser }
-  | { kind: 'verify'; user: AdminUser }
   | null;
 
 export default function AdminUsersPage() {
@@ -211,9 +208,6 @@ export default function AdminUsersPage() {
                             >
                               {user.displayName}
                             </Link>
-                            {user.emailVerified ? (
-                              <BadgeCheck className="h-3.5 w-3.5 shrink-0 text-emerald-500" aria-label="Email verified" />
-                            ) : null}
                           </div>
                           <p className="truncate text-xs ss-subtle">@{user.username}</p>
                           <p className="truncate text-xs ss-subtle">{user.email}</p>
@@ -235,9 +229,6 @@ export default function AdminUsersPage() {
                       >
                         {user.status.toLowerCase()}
                       </Badge>
-                      {!user.emailVerified ? (
-                        <span className="ml-1.5 text-[11px] ss-subtle">unverified</span>
-                      ) : null}
                     </td>
                     <td className="px-4 py-3 text-xs ss-muted">
                       <span className="block">{user.counts.exchanges} exchanges</span>
@@ -258,18 +249,6 @@ export default function AdminUsersPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap items-center justify-end gap-1">
-                        {!user.emailVerified ? (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setPending({ kind: 'verify', user })}
-                            title="Mark this email as verified"
-                            leftIcon={<Mail className="h-3.5 w-3.5" aria-hidden="true" />}
-                          >
-                            Verify
-                          </Button>
-                        ) : null}
-
                         {user.status === 'SUSPENDED' ? (
                           <Button
                             size="sm"
@@ -472,33 +451,6 @@ export default function AdminUsersPage() {
         </div>
       </Modal>
 
-      <Modal
-        open={pending?.kind === 'verify'}
-        onClose={() => setPending(null)}
-        title={pending ? `Mark @${pending.user.username}'s email as verified?` : 'Verify email'}
-        description="Only do this when you have confirmed the address another way, such as replying to them directly."
-        size="sm"
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setPending(null)}>
-              Cancel
-            </Button>
-            <Button
-              loading={action.isPending}
-              onClick={() =>
-                pending && run({ id: pending.user.id, action: 'verify-email' }, `@${pending.user.username} verified`)
-              }
-            >
-              Mark verified
-            </Button>
-          </>
-        }
-      >
-        <p className="text-sm ss-muted">
-          This unlocks exchange requests, messaging and community posting for them without an email round-trip.
-          The action is written to the audit log.
-        </p>
-      </Modal>
     </div>
   );
 }

@@ -125,6 +125,22 @@ export const writeLimiter = rateLimit({
   handler: (_req, _res, next) => next(ApiError.tooMany('You are posting too quickly. Please slow down.')),
 });
 
+/**
+ * Per-member limit for chat messages. The global limiter is shared with every
+ * other request, so without this one member could flood a conversation with a
+ * few hundred messages inside a single window.
+ */
+export const messageLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => env.isTest,
+  keyGenerator: (req) => req.user?.id ?? req.ip ?? 'unknown',
+  handler: (_req, _res, next) =>
+    next(ApiError.tooMany('You are sending messages too quickly. Please wait a moment.')),
+});
+
 /** Tighter limit for media uploads, which are expensive to process. */
 export const uploadLimiter = rateLimit({
   windowMs: 60_000,

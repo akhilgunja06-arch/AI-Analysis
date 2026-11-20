@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma';
 import { asyncHandler, validateBody, validateParams, validateQuery } from '../lib/http';
 import { created, noContent, ok, paginated, parsePagination } from '../lib/respond';
 import { ApiError } from '../lib/errors';
-import { requireAuth, requireVerified } from '../middleware/auth';
+import { requireAuth } from '../middleware/auth';
 import { uuidSchema } from '../lib/validation';
 import { createNotification } from '../services/notification.service';
 import { emitToUser } from '../realtime';
@@ -40,7 +40,6 @@ const createReviewSchema = z.object({
 reviewsRouter.post(
   '/',
   requireAuth,
-  requireVerified,
   validateBody(createReviewSchema),
   asyncHandler(async (req, res) => {
     const body = req.body as z.infer<typeof createReviewSchema>;

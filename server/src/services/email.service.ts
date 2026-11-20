@@ -8,9 +8,9 @@ import { logger } from '../lib/logger';
  *   smtp     — real delivery via the configured SMTP server
  *   disabled — accepted but dropped; API responses stay identical either way
  *
- * Nothing in the platform depends on email actually arriving: verification and
- * reset tokens are also returned to the client in non-production environments
- * so the flows are testable end to end.
+ * Nothing in the platform depends on email actually arriving: password-reset
+ * tokens are also returned to the client in non-production environments so the
+ * flow is testable end to end.
  */
 
 export type MailMessage = {
@@ -51,8 +51,8 @@ export async function sendMail(message: MailMessage): Promise<{ delivered: boole
   }
 
   if (env.EMAIL_PROVIDER === 'console') {
-    // Transactional templates only. A sensitive message (an OTP) is recorded as
-    // sent without its body, so the code never reaches a log file.
+    // Transactional templates only. A sensitive message is recorded as sent
+    // without its body, so secrets never reach a log file.
     logger.info('email.console_delivery', {
       to: message.to,
       subject: message.sensitive ? '(redacted subject)' : message.subject,
@@ -97,20 +97,6 @@ function wrap(title: string, body: string, cta?: { label: string; url: string })
   </div></body></html>`;
 }
 
-export function verificationEmail(to: string, displayName: string, token: string) {
-  const url = `${env.corsOrigins[0] ?? 'http://localhost:5173'}/verify-email?token=${encodeURIComponent(token)}`;
-  return sendMail({
-    to,
-    subject: 'Confirm your SkillSpring email address',
-    text: `Hi ${displayName},\n\nConfirm your email address to activate your SkillSpring account:\n${url}\n\nThis link expires in 24 hours. If you did not create an account, you can ignore this message.`,
-    html: wrap(
-      `Welcome, ${displayName}`,
-      'Confirm your email address to activate your account. This link expires in 24 hours.',
-      { label: 'Confirm email address', url },
-    ),
-  });
-}
-
 export function passwordResetEmail(to: string, displayName: string, token: string) {
   const url = `${env.corsOrigins[0] ?? 'http://localhost:5173'}/reset-password?token=${encodeURIComponent(token)}`;
   return sendMail({
@@ -132,31 +118,5 @@ export function notificationEmail(to: string, title: string, body: string, link?
     subject: title,
     text: `${title}\n\n${body}${url ? `\n\n${url}` : ''}`,
     html: wrap(title, body, url ? { label: 'Open SkillSpring', url } : undefined),
-  });
-}
-
-/**
- * The six-digit verification code. The code appears in the body because that is
- * its only purpose; it is never logged by the console provider.
- */
-export function sendOtpEmail(to: string, displayName: string, code: string, ttlSeconds: number) {
-  const minutes = Math.max(1, Math.round(ttlSeconds / 60));
-  const spaced = code.split('').join(' ');
-  return sendMail({
-    to,
-    sensitive: true,
-    subject: `${code} is your SkillSpring verification code`,
-    text: `Hi ${displayName},\n\nYour SkillSpring verification code is ${code}\n\nIt expires in ${minutes} minute${minutes === 1 ? '' : 's'}. If you did not try to sign in or create an account, ignore this message.\n\nNever share this code with anyone.`,
-    html: `<!doctype html><html><body style="margin:0;background:#0b1020;font-family:Inter,Segoe UI,Arial,sans-serif">
-  <div style="max-width:560px;margin:0 auto;padding:32px 24px">
-    <div style="font-size:20px;font-weight:700;color:#a5b4fc;letter-spacing:-0.02em">SkillSpring</div>
-    <div style="margin-top:20px;background:#131a33;border:1px solid #253063;border-radius:16px;padding:28px;color:#e2e8f7">
-      <h1 style="margin:0 0 12px;font-size:20px;color:#ffffff">Confirm your email address</h1>
-      <p style="font-size:15px;line-height:1.6;color:#b8c2e0;margin:0 0 20px">Hi ${displayName}, enter this code to verify your email address.</p>
-      <div style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:34px;font-weight:700;letter-spacing:0.32em;color:#ffffff;background:#0f1730;border:1px solid #2a3568;border-radius:12px;padding:18px;text-align:center">${spaced}</div>
-      <p style="font-size:13px;color:#8892b8;margin:20px 0 0">This code expires in ${minutes} minute${minutes === 1 ? '' : 's'}. If you did not request it, you can ignore this message.</p>
-    </div>
-    <p style="color:#5b6688;font-size:12px;margin-top:20px">Never share this code with anyone, including someone claiming to be from SkillSpring.</p>
-  </div></body></html>`,
   });
 }

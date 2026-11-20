@@ -20,7 +20,7 @@ export type PublicMember = {
   githubUrl: string | null;
   linkedinUrl: string | null;
   preferredFormat: string;
-  emailVerified: boolean;
+  lastSeenAt: string | null;
   memberSince: string;
   teaches: { skillId: string; name: string; slug: string; level: string; category: string; description: string | null }[];
   wants: { skillId: string; name: string; slug: string; level: string; category: string }[];
@@ -38,7 +38,7 @@ export type PublicMember = {
 const memberSelect = {
   id: true,
   username: true,
-  emailVerifiedAt: true,
+  lastSeenAt: true,
   createdAt: true,
   preference: {
     select: {
@@ -108,7 +108,7 @@ export function shapeMember(
     githubUrl: profile?.githubUrl ?? null,
     linkedinUrl: profile?.linkedinUrl ?? null,
     preferredFormat: profile?.preferredFormat ?? 'ONLINE',
-    emailVerified: Boolean(row.emailVerifiedAt),
+    lastSeenAt: row.lastSeenAt ? row.lastSeenAt.toISOString() : null,
     memberSince: row.createdAt.toISOString(),
     teaches: row.skills
       .filter((s) => s.direction === 'TEACH')

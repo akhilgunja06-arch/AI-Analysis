@@ -10,7 +10,6 @@ const LoginPage = lazy(() => import('@/pages/auth/LoginPage'));
 const RegisterPage = lazy(() => import('@/pages/auth/RegisterPage'));
 const ForgotPasswordPage = lazy(() => import('@/pages/auth/ForgotPasswordPage'));
 const ResetPasswordPage = lazy(() => import('@/pages/auth/ResetPasswordPage'));
-const VerifyEmailPage = lazy(() => import('@/pages/auth/VerifyEmailPage'));
 const OnboardingPage = lazy(() => import('@/pages/OnboardingPage'));
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
 const ExplorePage = lazy(() => import('@/pages/ExplorePage'));
@@ -71,7 +70,6 @@ export function App() {
         </Route>
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
-        <Route path="/verify-email" element={<VerifyEmailPage />} />
       </Route>
 
       {/* Onboarding: signed in, but without the app chrome */}

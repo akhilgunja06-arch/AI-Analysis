@@ -22,6 +22,7 @@ import type {
   CallType,
   Category,
   ChatMessage,
+  MessageableUser,
   CommunityCommentItem,
   CommunityPostDetail,
   CommunityPostSummary,
@@ -69,6 +70,7 @@ export const keys = {
   transitions: ['exchanges', 'transitions'] as const,
   sessions: (filters: Record<string, unknown>) => ['sessions', filters] as const,
   conversations: (search: string) => ['messages', 'conversations', search] as const,
+  messageableUsers: (search: string) => ['messages', 'users', search] as const,
   thread: (id: string) => ['messages', 'thread', id] as const,
   unread: ['messages', 'unread'] as const,
   notifications: (unreadOnly: boolean) => ['notifications', 'list', unreadOnly] as const,
@@ -480,6 +482,17 @@ export function useThread(conversationId: string | undefined) {
   });
 }
 
+/** People the caller can message, filtered by username or display name. */
+export function useMessageableUsers(search: string) {
+  return useQuery({
+    queryKey: keys.messageableUsers(search),
+    queryFn: () => api.get<MessageableUser[]>('/messages/users', { query: { search } }),
+    select: (res) => res.data,
+    enabled: search.trim().length >= 2,
+    staleTime: 30_000,
+  });
+}
+
 export function useStartConversation() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -500,6 +513,62 @@ export function useSendMessage() {
       void queryClient.invalidateQueries({ queryKey: keys.thread(variables.conversationId) });
       void queryClient.invalidateQueries({ queryKey: ['messages', 'conversations'] });
       void queryClient.invalidateQueries({ queryKey: keys.unread });
+    },
+  });
+}
+
+export function useSendAttachment() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ conversationId, file, caption }: { conversationId: string; file: File; caption?: string }) => {
+      const form = new FormData();
+      form.append('file', file);
+      if (caption) form.append('caption', caption);
+      return api.upload<ChatMessage>(`/messages/conversations/${conversationId}/attachment`, form);
+    },
+    onSuccess: (_result, variables) => {
+      void queryClient.invalidateQueries({ queryKey: keys.thread(variables.conversationId) });
+      void queryClient.invalidateQueries({ queryKey: ['messages', 'conversations'] });
+      void queryClient.invalidateQueries({ queryKey: keys.unread });
+    },
+  });
+}
+
+export function useDeleteMessage() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ messageId }: { messageId: string; conversationId: string }) =>
+      api.delete(`/messages/messages/${messageId}`),
+    onSuccess: (_result, variables) => {
+      void queryClient.invalidateQueries({ queryKey: keys.thread(variables.conversationId) });
+      void queryClient.invalidateQueries({ queryKey: ['messages', 'conversations'] });
+    },
+  });
+}
+
+/**
+ * Stamps the conversation as read. The thread GET also does this, but a message
+ * that arrives while the thread is open invalidates the list before that GET
+ * resolves, which would leave a stale unread badge on the open conversation.
+ */
+export function useMarkConversationRead() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (conversationId: string) => api.post(`/messages/conversations/${conversationId}/read`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['messages', 'conversations'] });
+      void queryClient.invalidateQueries({ queryKey: keys.unread });
+    },
+  });
+}
+
+export function useMuteConversation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ conversationId, muted }: { conversationId: string; muted: boolean }) =>
+      api.post<{ muted: boolean }>(`/messages/conversations/${conversationId}/mute`, { muted }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['messages'] });
     },
   });
 }
@@ -1141,25 +1210,6 @@ export function useRetryAiMessage() {
       void queryClient.invalidateQueries({ queryKey: keys.aiConversation(conversationId) });
       void queryClient.invalidateQueries({ queryKey: keys.aiConversations });
     },
-  });
-}
-
-// ------------------------------------------------------------ email OTP
-
-export function useVerifyEmailOtp() {
-  return useMutation({
-    mutationFn: (payload: { email: string; code: string }) =>
-      api.post<{ verified: boolean; alreadyVerified: boolean }>('/auth/verify-otp', payload),
-  });
-}
-
-export function useResendEmailOtp() {
-  return useMutation({
-    mutationFn: (email: string) =>
-      api.post<{ message: string; expiresInSeconds?: number; resendAfterSeconds?: number; devOtpCode?: string }>(
-        '/auth/resend-otp',
-        { email },
-      ),
   });
 }
 

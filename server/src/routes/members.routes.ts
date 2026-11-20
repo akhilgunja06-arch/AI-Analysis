@@ -7,6 +7,7 @@ import { noContent, ok, paginated, parsePagination } from '../lib/respond';
 import { ApiError } from '../lib/errors';
 import { optionalAuthenticate, requireAuth } from '../middleware/auth';
 import { uuidSchema } from '../lib/validation';
+import { blockedPartnerIds } from '../lib/blockFilters';
 import { memberSelectFields, memberStats, shapeMember } from '../services/member.service';
 import { createNotification } from '../services/notification.service';
 import { emitToUser } from '../realtime';
@@ -41,7 +42,7 @@ membersRouter.get(
     const { page, pageSize, skip, take } = parsePagination(req.query, { pageSize: 12, maxPageSize: 48 });
 
     const where: Prisma.UserWhereInput = {
-      status: { in: ['ACTIVE', 'PENDING_VERIFICATION'] },
+      status: 'ACTIVE',
       role: { not: 'ADMIN' },
       OR: [{ preference: null }, { preference: { publicProfile: true } }],
     };
@@ -93,17 +94,7 @@ membersRouter.get(
     // A dismissed recommendation is stored as a namespaced block reason, but
     // dismissing is not blocking: those members stay in the directory.
     if (req.user) {
-      const blocks = await prisma.userBlock.findMany({
-        where: {
-          OR: [{ blockerId: req.user.id }, { blockedId: req.user.id }],
-          NOT: { reason: 'DISMISSED_MATCH' },
-        },
-        select: { blockerId: true, blockedId: true },
-      });
-      const excluded = new Set<string>();
-      for (const b of blocks) {
-        excluded.add(b.blockerId === req.user.id ? b.blockedId : b.blockerId);
-      }
+      const excluded = await blockedPartnerIds(prisma, req.user.id);
       excluded.add(req.user.id);
       where.id = { notIn: [...excluded] };
     }
@@ -175,7 +166,7 @@ membersRouter.get(
     const { username } = res.locals.params as { username: string };
 
     const row = await prisma.user.findFirst({
-      where: { username: username.toLowerCase(), status: { in: ['ACTIVE', 'PENDING_VERIFICATION'] } },
+      where: { username: username.toLowerCase(), status: 'ACTIVE' },
       select: memberSelectFields,
     });
     if (!row) throw ApiError.notFound('That member could not be found.');

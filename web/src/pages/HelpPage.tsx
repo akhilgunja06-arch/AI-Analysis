@@ -102,8 +102,8 @@ export default function HelpPage() {
                 <ol className="space-y-4">
                   {[
                     {
-                      title: 'Create and verify your account',
-                      body: 'Register with an email address and password. Verifying your email unlocks requests, messaging and community posting.',
+                      title: 'Create your account',
+                      body: 'Register with a name, username, email address and password. You can sign in and use every feature straight away.',
                     },
                     {
                       title: 'Add skills in both directions',
@@ -264,7 +264,7 @@ export default function HelpPage() {
                 <ul className="space-y-2.5 text-sm ss-muted">
                   {[
                     'No payments are processed. SkillSpring is a time-for-time exchange, and there is no way to buy or sell sessions here.',
-                    'Email delivery and file storage depend on services an operator configures. If they are not configured, verification tokens and uploads fall back to local handling, which the interface states where it applies.',
+                    'File storage depends on a service an operator configures. If it is not configured, uploads fall back to local handling, which the interface states where it applies.',
                     'Reviews cannot be edited or deleted after submission. This is deliberate — it keeps the record honest.',
                     'Match quality depends on how specific your skill entries are. Broad entries like “programming” match poorly.',
                     'Deleting your account anonymises completed exchanges rather than destroying them, so your former partners keep their learning history.',
