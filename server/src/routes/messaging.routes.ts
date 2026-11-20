@@ -7,7 +7,7 @@ import { ApiError } from '../lib/errors';
 import { requireAuth, requireRestrictedAuth } from '../middleware/auth';
 import { messageLimiter } from '../middleware/errors';
 import { uuidSchema } from '../lib/validation';
-import { REAL_BLOCK, blockBetween, blockedPartnerIds } from '../lib/blockFilters';
+import { REAL_BLOCK, blockBetween, blockedPartnerIds, directKey } from '../lib/blockFilters';
 import { createNotification } from '../services/notification.service';
 import { emitToConversation, emitToUser, onlineUserIds } from '../realtime';
 import { mediaUrlFor, storeFile, uploadAttachment } from '../services/storage.service';
@@ -39,11 +39,6 @@ async function assertConversationMember(conversationId: string, userId: string) 
     throw ApiError.notFound('That conversation could not be found.');
   }
   return participant;
-}
-
-/** Deterministic key so a 1:1 conversation can never be duplicated. */
-function directKey(a: string, b: string): string {
-  return [a, b].sort().join(':');
 }
 
 const senderSelect = {

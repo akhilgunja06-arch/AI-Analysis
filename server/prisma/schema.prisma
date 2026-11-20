@@ -272,6 +272,7 @@ model User {
   messagingRestrictions MessagingRestriction[]    @relation("RestrictionUser")
   callsInitiated        CallSession[]             @relation("CallCaller")
   callsReceived         CallSession[]             @relation("CallCallee")
+  location              UserLocation?
 
   @@index([status])
   @@index([role])
@@ -961,6 +962,32 @@ model Favorite {
 }
 
 // ----------------------------------------------------------------- AI chat
+
+/// A member's saved location, stored only with explicit consent.
+///
+/// Exact coordinates never leave the server: `nearby` queries run here and the
+/// API returns a grid-snapped point (about 1 km) plus a place label. The member
+/// controls whether anything is shared at all via `sharingEnabled`.
+model UserLocation {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String   @unique @db.Uuid
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  latitude       Float
+  longitude      Float
+  /// Human-readable place name from reverse geocoding or manual entry.
+  label          String?
+  city           String?
+  region         String?
+  country        String?
+  /// When false the member still sees their own pin but nobody else does.
+  sharingEnabled Boolean  @default(false)
+  /// When the member last consented to storing a location. Cleared on removal.
+  consentAt      DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([sharingEnabled, latitude, longitude])
+}
 
 model AiConversation {
   id        String   @id @default(uuid()) @db.Uuid

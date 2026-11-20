@@ -24,7 +24,7 @@ aiRouter.use(requireAuth);
  * writing is scoped to the authenticated owner on every request — a
  * conversation id from another account behaves as if it does not exist.
  *
- * Generating an assistant reply requires GROQ_API_KEY. When it is missing the
+ * Generating an assistant reply requires AI_API_KEY. When it is missing the
  * endpoint records the member's message and returns an explicit 501 rather than
  * inventing a reply or claiming a model answered.
  */
@@ -186,7 +186,7 @@ aiRouter.post(
         501,
         'AI_NOT_CONFIGURED',
         'The AI Study Assistant is not configured on this deployment. Your message was saved, but no reply was generated.',
-        { requiredEnv: ['GROQ_API_KEY'], savedMessageId: userMessage.id },
+        { requiredEnv: ['AI_API_KEY', 'AI_MODEL'], savedMessageId: userMessage.id },
       );
     }
 
@@ -251,7 +251,7 @@ aiRouter.post(
 
     if (!env.aiEnabled) {
       throw new ApiError(501, 'AI_NOT_CONFIGURED', 'The AI Study Assistant is not configured on this deployment.', {
-        requiredEnv: ['GROQ_API_KEY'],
+        requiredEnv: ['AI_API_KEY', 'AI_MODEL'],
       });
     }
 

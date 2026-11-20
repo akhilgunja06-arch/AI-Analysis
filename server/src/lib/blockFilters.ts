@@ -45,3 +45,8 @@ export async function blockedPartnerIds(
   }
   return ids;
 }
+
+/** Deterministic key so a 1:1 conversation can never be duplicated. */
+export function directKey(a: string, b: string): string {
+  return [a, b].sort().join(':');
+}

@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   LifeBuoy,
   LogOut,
+  MapPin,
   MessageSquare,
   PhoneCall,
   Settings,
@@ -27,6 +28,7 @@ import { Logo } from '@/components/ui/Logo';
 import { Button } from '@/components/ui/Button';
 import { ThemeToggle } from './ThemeToggle';
 import { NotificationBell } from './NotificationBell';
+import { UserSearchBox } from './UserSearchBox';
 import { useAuth } from '@/providers/AuthProvider';
 import { useUnreadCount } from '@/hooks/queries';
 
@@ -39,6 +41,8 @@ export const MEMBER_NAV = [
   { to: '/messages', label: 'Messages', icon: MessageSquare },
   { to: '/calls', label: 'Calls', icon: PhoneCall },
   { to: '/learning', label: 'Learning', icon: GraduationCap },
+  { to: '/learning-agent', label: 'AI Agent', icon: Bot },
+  { to: '/nearby', label: 'Nearby', icon: MapPin },
   { to: '/favorites', label: 'Favourites', icon: Bookmark },
   { to: '/media', label: 'Media', icon: Image },
   { to: '/community', label: 'Community', icon: BookOpen },
@@ -88,8 +92,15 @@ export function AppNavbar() {
           <Logo size={30} />
         </Link>
 
+        {/* Member search: the fastest route from "I know their username" to a
+            profile or an existing chat. Hidden on the smallest screens where
+            the mobile sheet carries it instead. */}
+        <div className="hidden min-w-0 flex-1 md:block lg:max-w-xs">
+          <UserSearchBox />
+        </div>
+
         {/* Desktop navigation */}
-        <nav aria-label="Main" className="hidden flex-1 items-center gap-1 lg:flex">
+        <nav aria-label="Main" className="hidden items-center gap-1 lg:flex">
           {MEMBER_NAV.map((item) => {
             const Icon = item.icon;
             return (
@@ -251,6 +262,9 @@ export function AppNavbar() {
           aria-label="Main"
           className="border-t bg-[rgb(var(--ss-bg-alt))] px-4 py-3 lg:hidden"
         >
+          <div className="mb-3 md:hidden">
+            <UserSearchBox />
+          </div>
           <ul className="grid grid-cols-2 gap-1.5">
             {MEMBER_NAV.map((item) => {
               const Icon = item.icon;

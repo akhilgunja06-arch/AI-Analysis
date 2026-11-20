@@ -34,6 +34,9 @@ const HelpPage = lazy(() => import('@/pages/HelpPage'));
 const AboutPage = lazy(() => import('@/pages/AboutPage'));
 const ContactPage = lazy(() => import('@/pages/ContactPage'));
 const AssistantPage = lazy(() => import('@/pages/AssistantPage'));
+const SearchPage = lazy(() => import('@/pages/SearchPage'));
+const NearbyPage = lazy(() => import('@/pages/NearbyPage'));
+const LearningAgentPage = lazy(() => import('@/pages/LearningAgentPage'));
 const CallsPage = lazy(() => import('@/pages/CallsPage'));
 const PrivacyPage = lazy(() => import('@/pages/PrivacyPage'));
 const TermsPage = lazy(() => import('@/pages/TermsPage'));
@@ -97,6 +100,9 @@ export function App() {
           <Route path="/favorites" element={<FavoritesPage />} />
           <Route path="/media" element={<MediaPage />} />
           <Route path="/assistant" element={<AssistantPage />} />
+          <Route path="/search" element={<SearchPage />} />
+          <Route path="/nearby" element={<NearbyPage />} />
+          <Route path="/learning-agent" element={<LearningAgentPage />} />
           <Route path="/calls" element={<CallsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Route>

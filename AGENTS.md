@@ -60,6 +60,17 @@ DATABASE_URL="postgresql://skillspring:skillspring_dev@127.0.0.1:5432/skillsprin
 
 - API responses are `{ data: ... }` (paginated adds `meta`). Errors are
   `{ error: { code, message } }`.
+- There is no email verification. `POST /api/auth/register` creates an account
+  already `ACTIVE` and returns `{ user, accessToken }`; there is no OTP, no code
+  screen and no `requireVerified` middleware. Do not reintroduce a
+  `PENDING_VERIFICATION` status — the enum value is gone. Password reset uses a
+  token link (`AuthToken` purpose `PASSWORD_RESET`), not a code.
+- Chat has no topic rule. `server/src/services/moderation.service.ts` blocks
+  threats, sexual solicitation, spam and self-harm, and warns on mild abuse;
+  ordinary off-topic conversation is allowed. The old `STUDY_SIGNALS`/`OFF_TOPIC`
+  heuristic was removed on purpose — do not bring back a "study only" check.
+- Blocking lives at `POST|DELETE /api/messages/users/:username/block` (not
+  `/api/blocks`); a block returns 403 for sends in both directions.
 - Reporting has one endpoint: `POST /api/reports` (`server/src/routes/reports.routes.ts`).
   `targetType` is `USER`, `MESSAGE`, `REVIEW`, `COMMUNITY_POST` or
   `COMMUNITY_COMMENT`; each type has its own authorization rule inside
