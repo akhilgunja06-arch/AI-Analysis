@@ -95,6 +95,13 @@ DATABASE_URL="postgresql://skillspring:skillspring_dev@127.0.0.1:5432/skillsprin
   swallowed. Keep the `AiConversationDetail` type in `web/src/lib/types.ts` in
   step with the route — the detail endpoint returns `id, userId, title, messages`
   only, no timestamps.
+- `AI_PROVIDER` accepts only `none` or `groq`. `groq.service.ts` always calls
+  the Groq host, so accepting `openai`/`anthropic` used to forward that
+  provider's key to Groq. Unsupported values are reported, not silently
+  downgraded. `GET /api/ai/connection` makes one real provider call and returns
+  `ok`/`model`/`latencyMs`/`code` (never the key), which is what the assistant
+  page uses to tell "no key set" apart from "key rejected". Assistant turns are
+  throttled per member by `aiLimiter` (`AI_RATE_LIMIT_MAX`).
 - Nested Prisma relations must be flattened before they reach the client. A
   relation like `author: { profile: { displayName } }` becomes
   `author: { username, displayName, avatarUrl }` in the response. Leaking the
