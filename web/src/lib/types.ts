@@ -844,3 +844,142 @@ export type ModerationStanding = {
   }[];
   appealPath: string;
 };
+
+/** A member returned by the navbar search. Public fields only. */
+export type MemberSearchResult = {
+  id: string;
+  username: string;
+  displayName: string;
+  avatarUrl: string | null;
+  headline: string | null;
+  bio: string | null;
+  teaches: { name: string; slug: string; level: string }[];
+  followers: number;
+  online: boolean;
+  lastSeenAt: string | null;
+  following: boolean;
+  /** Set when a 1:1 conversation already exists. */
+  conversationId: string | null;
+};
+
+/** A member's saved location. Coordinates are exact for the owner only. */
+export type SavedLocation = {
+  latitude: number;
+  longitude: number;
+  label: string | null;
+  city: string | null;
+  region: string | null;
+  country: string | null;
+  place: string | null;
+  sharingEnabled: boolean;
+  consentAt: string | null;
+  updatedAt: string;
+};
+
+/** A nearby member. `location` is grid-snapped server-side, never exact. */
+export type NearbyMember = {
+  id: string;
+  username: string;
+  displayName: string;
+  avatarUrl: string | null;
+  headline: string | null;
+  teaches: { name: string; slug: string; level: string }[];
+  location: { latitude: number; longitude: number };
+  place: string | null;
+  distanceKm: number;
+};
+
+export type NearbyResponse = {
+  center: { latitude: number; longitude: number };
+  radiusKm: number;
+  members: NearbyMember[];
+};
+
+export type LearningResource = {
+  title: string;
+  platform: string;
+  url: string;
+  free: boolean | null;
+  difficulty: 'BEGINNER' | 'INTERMEDIATE' | 'ADVANCED' | 'ALL';
+  description: string;
+  whyUseful: string;
+  /** False when the link was not checked by a live search. */
+  verified: boolean;
+};
+
+export type ResourceSource = 'search_api' | 'curated' | 'none';
+
+export type ResourceResponse = {
+  resources: LearningResource[];
+  source: ResourceSource;
+  notice: string | null;
+};
+
+export type RoadmapTopic = {
+  title: string;
+  explanation: string;
+  example: string;
+  exercise: string;
+};
+
+export type RoadmapStage = {
+  stage: 'BEGINNER' | 'INTERMEDIATE' | 'ADVANCED';
+  summary: string;
+  topics: RoadmapTopic[];
+  checklist: string[];
+};
+
+export type SkillAnalysis = {
+  skill: string;
+  summary: string;
+  whyUseful: string[];
+  prerequisites: string[];
+  relatedSkills: string[];
+  practiceTips: string[];
+  stages: RoadmapStage[];
+  projects: { title: string; description: string; level: 'BEGINNER' | 'INTERMEDIATE' | 'ADVANCED' }[];
+};
+
+export type SkillAnalysisResponse = {
+  analysis: SkillAnalysis;
+  resources: LearningResource[];
+  resourceSource: ResourceSource;
+  resourceNotice: string | null;
+  model: string;
+};
+
+export type SkillMentor = {
+  id: string;
+  username: string;
+  displayName: string;
+  avatarUrl: string | null;
+  headline: string | null;
+  direction: 'TEACH' | 'LEARN';
+  level: string;
+  teaches: { name: string; slug: string; level: string }[];
+  place: string | null;
+  online: boolean;
+  lastSeenAt: string | null;
+};
+
+export type MutualMatch = {
+  userId: string;
+  username: string;
+  displayName: string;
+  avatarUrl: string | null;
+  headline: string | null;
+  place: string | null;
+  theyTeach: { name: string; slug: string; level: string }[];
+  theyWant: { name: string; slug: string; level: string }[];
+  why: string;
+  levelFit: 'SAME_LEVEL' | 'DIFFERENT_LEVEL';
+};
+
+export type LearningAgentStatus = {
+  ai: { enabled: boolean; provider: string; model: string | null };
+  resourceSearch: { enabled: boolean; provider: string | null };
+  missingEnv: string[];
+};
+
+/** One turn in the skill-learning chat. Replayed by the client each request. */
+export type SkillChatTurn = { role: 'user' | 'assistant'; content: string };

@@ -15,6 +15,7 @@ import type {
   AiMessage,
   AiSendResult,
   AuditEntry,
+  AvailabilityWindow,
   CalendarSession,
   CallHistoryEntry,
   CallSession,
@@ -22,7 +23,6 @@ import type {
   CallType,
   Category,
   ChatMessage,
-  MessageableUser,
   CommunityCommentItem,
   CommunityPostDetail,
   CommunityPostSummary,
@@ -35,22 +35,31 @@ import type {
   FaqCategory,
   IceServer,
   IntegrationStatus,
+  LearningAgentStatus,
   LearningPayload,
   Match,
   MatchCriteria,
-  MemberProfileResponse,
-  ModerationStanding,
   MediaAsset,
+  MemberProfileResponse,
+  MemberSearchResult,
+  MessageableUser,
+  ModerationStanding,
+  MutualMatch,
+  NearbyResponse,
   NotificationItem,
   PlatformStats,
   PublicMember,
+  ResourceResponse,
   ReviewItem,
+  SavedLocation,
   SettingsPayload,
   Skill,
+  SkillAnalysisResponse,
+  SkillChatTurn,
   SkillDirection,
+  SkillMentor,
   TrendingSkill,
   UserSkillEntry,
-  AvailabilityWindow,
 } from '@/lib/types';
 
 // ------------------------------------------------------------- query keys
@@ -1291,5 +1300,146 @@ export function useModerationStanding() {
     queryFn: () => api.get<ModerationStanding>('/messages/moderation'),
     select: (res) => res.data,
     staleTime: 60_000,
+  });
+}
+
+// --- Discovery: navbar search -------------------------------------------------
+
+export function useMemberSearch(term: string, enabled = true) {
+  const q = term.trim();
+  return useQuery({
+    queryKey: ['members', 'search', q],
+    queryFn: () => api.get<MemberSearchResult[]>('/members/search', { query: { q } }),
+    select: (res) => res.data,
+    enabled: enabled && q.length >= 2,
+    // Keystrokes land here; keep the previous list visible while the next loads
+    // so the dropdown does not flash empty between characters.
+    placeholderData: (previous) => previous,
+    staleTime: 15_000,
+  });
+}
+
+// --- Location ----------------------------------------------------------------
+
+export function useMyLocation() {
+  return useQuery({
+    queryKey: ['location', 'me'],
+    queryFn: () => api.get<SavedLocation | null>('/location/me'),
+    select: (res) => res.data,
+  });
+}
+
+export function useSaveLocation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: {
+      latitude: number;
+      longitude: number;
+      label?: string;
+      city?: string;
+      region?: string;
+      country?: string;
+      sharingEnabled: boolean;
+      consent: true;
+    }) => api.put<SavedLocation>('/location/me', input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['location'] });
+    },
+  });
+}
+
+export function useSetLocationSharing() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { sharingEnabled: boolean; consent?: true }) =>
+      api.patch<{ sharingEnabled: boolean }>('/location/me/sharing', input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['location'] });
+    },
+  });
+}
+
+export function useClearLocation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.delete<void>('/location/me'),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['location'] });
+    },
+  });
+}
+
+export function useNearbyMembers(input: { radiusKm: number; latitude?: number; longitude?: number }) {
+  return useQuery({
+    queryKey: ['location', 'nearby', input],
+    queryFn: () => api.get<NearbyResponse>('/location/nearby', { query: input }),
+    select: (res) => res.data,
+    // Without a saved location and without an explicit point the API answers
+    // 400; skip the call so the page can prompt instead of showing an error.
+    enabled: true,
+    retry: false,
+  });
+}
+
+// --- Skill learning agent ----------------------------------------------------
+
+export function useLearningAgentStatus() {
+  return useQuery({
+    queryKey: ['learning-agent', 'status'],
+    queryFn: () => api.get<LearningAgentStatus>('/learning-agent/status'),
+    select: (res) => res.data,
+    staleTime: 60_000,
+  });
+}
+
+export function useSkillAnalysis() {
+  return useMutation({
+    mutationFn: (input: { skill: string; language: 'en' | 'te'; includeResources?: boolean }) =>
+      api.post<SkillAnalysisResponse>('/learning-agent/analyse', {
+        includeResources: true,
+        ...input,
+      }),
+  });
+}
+
+export function useSkillResources(skill: string) {
+  const q = skill.trim();
+  return useQuery({
+    queryKey: ['learning-agent', 'resources', q],
+    queryFn: () => api.get<ResourceResponse>('/learning-agent/resources', { query: { skill: q } }),
+    select: (res) => res.data,
+    enabled: q.length >= 2,
+    retry: false,
+  });
+}
+
+export function useSkillMentors(skill: string) {
+  const q = skill.trim();
+  return useQuery({
+    queryKey: ['learning-agent', 'mentors', q],
+    queryFn: () => api.get<{ skill: string; mentors: SkillMentor[]; notice: string | null }>(
+      '/learning-agent/mentors',
+      { query: { skill: q } },
+    ),
+    select: (res) => res.data,
+    enabled: q.length >= 2,
+    retry: false,
+  });
+}
+
+export function useMutualMatches() {
+  return useQuery({
+    queryKey: ['learning-agent', 'mutual-matches'],
+    queryFn: () =>
+      api.get<{ matches: MutualMatch[]; notice: string | null }>('/learning-agent/mutual-matches'),
+    select: (res) => res.data,
+    retry: false,
+  });
+}
+
+export function useSkillChat() {
+  return useMutation({
+    mutationFn: (input: { skill: string; language: 'en' | 'te'; messages: SkillChatTurn[] }) =>
+      api.post<{ reply: string; model: string; notice?: string }>('/learning-agent/chat', input),
   });
 }

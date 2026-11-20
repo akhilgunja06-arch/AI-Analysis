@@ -184,13 +184,14 @@ export default function AssistantPage() {
             description={
               <>
                 You can start a conversation and your questions are saved, but no answer will be generated
-                until the server has a Groq API key. Set <code className="font-mono">GROQ_API_KEY</code> (and
-                optionally <code className="font-mono">GROQ_MODEL</code>) in{' '}
-                <code className="font-mono">server/.env</code>, then restart the API. This page never invents an
+                until the server has a Groq API key. Set <code className="font-mono">AI_API_KEY</code> (and
+                optionally <code className="font-mono">AI_MODEL</code>) in{' '}
+                <code className="font-mono">server/.env</code>, then restart the API. The older{' '}
+                <code className="font-mono">GROQ_API_KEY</code> name also works. This page never invents an
                 answer.
               </>
             }
-            integration="GROQ_API_KEY"
+            integration="AI_API_KEY"
           />
         </div>
       ) : null}
