@@ -1318,7 +1318,7 @@ describe('moderation', () => {
       },
     });
 
-    const report = await api<{ data: { id: string } }>(baseUrl, 'POST', '/api/community/report', {
+    const report = await api<{ data: { id: string } }>(baseUrl, 'POST', '/api/reports', {
       token: reporter.token,
       body: {
         targetType: 'COMMUNITY_POST',
@@ -1330,7 +1330,7 @@ describe('moderation', () => {
     expect(report.status).toBe(201);
 
     // Duplicate reports from the same person are refused.
-    const duplicate = await api(baseUrl, 'POST', '/api/community/report', {
+    const duplicate = await api(baseUrl, 'POST', '/api/reports', {
       token: reporter.token,
       body: { targetType: 'COMMUNITY_POST', targetId: post.body.data.id, reason: 'SPAM' },
     });

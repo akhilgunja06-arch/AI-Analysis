@@ -133,7 +133,22 @@ supportRouter.get(
       emailDelivery: { provider: env.EMAIL_PROVIDER, enabled: emailDeliveryEnabled() },
       objectStorage: { provider: env.STORAGE_PROVIDER },
       realtime: { provider: 'socket.io', enabled: true },
-      aiAssistance: { provider: env.AI_PROVIDER, enabled: env.aiEnabled },
+      aiAssistance: {
+        provider: env.aiProvider,
+        enabled: env.aiEnabled,
+        model: env.aiEnabled ? env.GROQ_MODEL : null,
+      },
+      webrtc: {
+        stun: env.stunUrls.length,
+        turn: env.turnUrls.length,
+        enabled: env.webrtcConfigured,
+      },
+      emailOtp: {
+        enabled: true,
+        // Whether a real code can actually be delivered. The console provider
+        // only logs, which is fine for development and useless for a real user.
+        deliveryProvider: env.EMAIL_PROVIDER,
+      },
       oauthProviders: [],
     }),
   ),
