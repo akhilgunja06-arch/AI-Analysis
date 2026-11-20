@@ -21,6 +21,8 @@ import { aiRouter } from './ai.routes';
 import { callsRouter } from './calls.routes';
 import { dashboardRouter, publicStatsRouter } from './dashboard.routes';
 import { reportsRouter } from './reports.routes';
+import { locationRouter } from './location.routes';
+import { learningAgentRouter } from './learningAgent.routes';
 
 export const apiRouter = Router();
 
@@ -50,6 +52,8 @@ apiRouter.use('/learning', learningRouter);
 apiRouter.use('/favorites', favoritesRouter);
 apiRouter.use('/ai', aiRouter);
 apiRouter.use('/calls', callsRouter);
+apiRouter.use('/location', locationRouter);
+apiRouter.use('/learning-agent', learningAgentRouter);
 
 // Milestones and notes hang off exchanges but live in their own router.
 apiRouter.use('/', milestonesRouter);
@@ -69,7 +73,7 @@ apiRouter.get('/', (_req, res) => {
         'auth', 'stats', 'skills', 'members', 'community', 'support',
         'profile', 'dashboard', 'matches', 'exchanges', 'sessions',
         'messages', 'notifications', 'reviews', 'reports', 'settings', 'learning',
-        'media', 'favorites', 'ai', 'calls', 'admin',
+        'media', 'favorites', 'ai', 'calls', 'location', 'learning-agent', 'admin',
       ],
     },
   });

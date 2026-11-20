@@ -17,6 +17,14 @@ export type ChatRole = 'system' | 'user' | 'assistant';
 
 export type ChatTurn = { role: ChatRole; content: string };
 
+export type CompletionOptions = {
+  systemPrompt?: string;
+  temperature?: number;
+  maxTokens?: number;
+  /** Ask Groq to constrain the reply to a single JSON object. */
+  jsonMode?: boolean;
+};
+
 export type GroqCompletion = {
   content: string;
   model: string;
@@ -86,7 +94,7 @@ function upstreamError(status: number, bodyText: string): ApiError {
     return new ApiError(
       502,
       'AI_MODEL_UNAVAILABLE',
-      'The configured assistant model is not available. An administrator needs to check GROQ_MODEL.',
+      'The configured assistant model is not available. An administrator needs to check AI_MODEL.',
     );
   }
   if (status >= 500) {
@@ -103,13 +111,13 @@ function upstreamError(status: number, bodyText: string): ApiError {
  * Sends the conversation to Groq and returns the assistant's reply.
  * Throws ApiError on every failure path; never returns a fabricated answer.
  */
-export async function completeChat(turns: ChatTurn[]): Promise<GroqCompletion> {
+export async function completeChat(turns: ChatTurn[], options?: CompletionOptions): Promise<GroqCompletion> {
   if (!assistantConfigured()) {
     throw new ApiError(
       501,
       'AI_NOT_CONFIGURED',
-      'The AI Study Assistant is not configured on this deployment. Ask an administrator to set GROQ_API_KEY.',
-      { requiredEnv: ['GROQ_API_KEY'] },
+      'The AI Study Assistant is not configured on this deployment. Ask an administrator to set AI_API_KEY.',
+      { requiredEnv: ['AI_API_KEY', 'AI_MODEL'] },
     );
   }
 
@@ -124,11 +132,15 @@ export async function completeChat(turns: ChatTurn[]): Promise<GroqCompletion> {
         Authorization: `Bearer ${env.groqApiKey}`,
       },
       body: JSON.stringify({
-        model: env.GROQ_MODEL,
-        messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...turns],
-        temperature: env.GROQ_TEMPERATURE,
-        max_tokens: env.GROQ_MAX_TOKENS,
+        model: env.groqModel,
+        messages: [
+          { role: 'system', content: options?.systemPrompt ?? SYSTEM_PROMPT },
+          ...turns,
+        ],
+        temperature: options?.temperature ?? env.GROQ_TEMPERATURE,
+        max_tokens: options?.maxTokens ?? env.GROQ_MAX_TOKENS,
         stream: false,
+        ...(options?.jsonMode ? { response_format: { type: 'json_object' } } : {}),
       }),
       signal: controller.signal,
     });
@@ -156,7 +168,7 @@ export async function completeChat(turns: ChatTurn[]): Promise<GroqCompletion> {
 
     return {
       content,
-      model: payload.model ?? env.GROQ_MODEL,
+      model: payload.model ?? env.groqModel,
       finishReason: choice?.finish_reason ?? null,
       usage: payload.usage
         ? {
@@ -184,13 +196,13 @@ export async function completeChat(turns: ChatTurn[]): Promise<GroqCompletion> {
  */
 export async function probeProvider(): Promise<{ ok: boolean; model: string; detail?: string }> {
   if (!assistantConfigured()) {
-    return { ok: false, model: env.GROQ_MODEL, detail: 'GROQ_API_KEY is not set' };
+    return { ok: false, model: env.groqModel, detail: 'AI_API_KEY is not set' };
   }
   try {
     await completeChat([{ role: 'user', content: 'Reply with the single word: ready' }]);
-    return { ok: true, model: env.GROQ_MODEL };
+    return { ok: true, model: env.groqModel };
   } catch (err) {
     const detail = err instanceof ApiError ? err.code : 'unknown';
-    return { ok: false, model: env.GROQ_MODEL, detail };
+    return { ok: false, model: env.groqModel, detail };
   }
 }

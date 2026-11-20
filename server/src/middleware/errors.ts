@@ -152,3 +152,19 @@ export const uploadLimiter = rateLimit({
   handler: (_req, _res, next) =>
     next(ApiError.tooMany('You are uploading too quickly. Please wait a moment and try again.')),
 });
+
+/**
+ * Discovery search runs on every keystroke after the client debounce, so it
+ * needs its own budget. Scoped per member rather than per IP: several members
+ * can share a campus NAT address.
+ */
+export const searchLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => env.isTest,
+  keyGenerator: (req) => req.user?.id ?? req.ip ?? 'unknown',
+  handler: (_req, _res, next) =>
+    next(ApiError.tooMany('You are searching too quickly. Please wait a moment.')),
+});

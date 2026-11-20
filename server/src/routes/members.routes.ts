@@ -6,11 +6,12 @@ import { asyncHandler, validateParams, validateQuery } from '../lib/http';
 import { noContent, ok, paginated, parsePagination } from '../lib/respond';
 import { ApiError } from '../lib/errors';
 import { optionalAuthenticate, requireAuth } from '../middleware/auth';
+import { searchLimiter } from '../middleware/errors';
 import { uuidSchema } from '../lib/validation';
-import { blockedPartnerIds } from '../lib/blockFilters';
+import { blockedPartnerIds, directKey } from '../lib/blockFilters';
 import { memberSelectFields, memberStats, shapeMember } from '../services/member.service';
 import { createNotification } from '../services/notification.service';
-import { emitToUser } from '../realtime';
+import { emitToUser, onlineUserIds } from '../realtime';
 
 export const membersRouter = Router();
 
@@ -154,6 +155,111 @@ membersRouter.get(
     );
 
     return paginated(res, members, total, page, pageSize);
+  }),
+);
+
+/**
+ * GET /api/members/search — username autocomplete for the navbar.
+ *
+ * Registered here before `/:username` so the literal segment is not swallowed
+ * by the parameterised profile route.
+ *
+ * Authenticated only: discovery is a member feature and the caller's identity
+ * decides which accounts are hidden (self, blocked either way). The projection
+ * is the same public one the directory uses, so no email or private column can
+ * leak through this path.
+ */
+membersRouter.get(
+  '/search',
+  requireAuth,
+  searchLimiter,
+  validateQuery(
+    z.object({
+      q: z.string().trim().min(1).max(40),
+      limit: z.coerce.number().int().positive().max(20).default(8),
+    }),
+  ),
+  asyncHandler(async (req, res) => {
+    const { q, limit } = res.locals.query as { q: string; limit: number };
+    const callerId = req.user!.id;
+
+    const excluded = await blockedPartnerIds(prisma, callerId);
+    excluded.add(callerId);
+
+    const rows = await prisma.user.findMany({
+      where: {
+        status: 'ACTIVE',
+        id: { notIn: [...excluded] },
+        // Hidden profiles stay hidden: an empty directory entry must not be
+        // discoverable through search either.
+        AND: [{ OR: [{ preference: null }, { preference: { publicProfile: true } }] }],
+        OR: [
+          { username: { contains: q, mode: 'insensitive' } },
+          { profile: { displayName: { contains: q, mode: 'insensitive' } } },
+        ],
+      },
+      select: {
+        id: true,
+        username: true,
+        lastSeenAt: true,
+        profile: {
+          select: { displayName: true, avatarUrl: true, headline: true, bio: true },
+        },
+        skills: {
+          where: { isActive: true, direction: 'TEACH' },
+          take: 4,
+          select: { level: true, skill: { select: { name: true, slug: true } } },
+        },
+        _count: { select: { followers: true } },
+      },
+      // Prefix matches first so typing "akh" surfaces "akhil" ahead of "sakhil".
+      orderBy: [{ username: 'asc' }],
+      take: limit * 3,
+    });
+
+    const ranked = rows
+      .map((row) => {
+        const username = row.username.toLowerCase();
+        const term = q.toLowerCase();
+        const rank = username === term ? 0 : username.startsWith(term) ? 1 : 2;
+        return { row, rank };
+      })
+      .sort((a, b) => a.rank - b.rank || a.row.username.localeCompare(b.row.username))
+      .slice(0, limit);
+
+    const ids = ranked.map((r) => r.row.id);
+
+    // Existing 1:1 conversations, so the result can offer "Message" directly
+    // instead of always creating one.
+    const mine = await prisma.conversationParticipant.findMany({
+      where: { userId: callerId, conversation: { isGroup: false } },
+      select: { conversationId: true, conversation: { select: { directKey: true } } },
+    });
+    const byDirectKey = new Map(mine.map((m) => [m.conversation.directKey, m.conversationId]));
+
+    const following = await prisma.follow.findMany({
+      where: { followerId: callerId, followingId: { in: ids } },
+      select: { followingId: true },
+    });
+    const followingIds = new Set(following.map((f) => f.followingId));
+
+    return ok(
+      res,
+      ranked.map(({ row }) => ({
+        id: row.id,
+        username: row.username,
+        displayName: row.profile?.displayName ?? row.username,
+        avatarUrl: row.profile?.avatarUrl ?? null,
+        headline: row.profile?.headline ?? null,
+        bio: row.profile?.bio ?? null,
+        teaches: row.skills.map((s) => ({ name: s.skill.name, slug: s.skill.slug, level: s.level })),
+        followers: row._count.followers,
+        online: onlineUserIds().has(row.id),
+        lastSeenAt: row.lastSeenAt ? row.lastSeenAt.toISOString() : null,
+        following: followingIds.has(row.id),
+        conversationId: byDirectKey.get(directKey(callerId, row.id)) ?? null,
+      })),
+    );
   }),
 );
 

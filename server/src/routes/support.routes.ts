@@ -136,7 +136,7 @@ supportRouter.get(
       aiAssistance: {
         provider: env.aiProvider,
         enabled: env.aiEnabled,
-        model: env.aiEnabled ? env.GROQ_MODEL : null,
+        model: env.aiEnabled ? env.groqModel : null,
       },
       webrtc: {
         stun: env.stunUrls.length,

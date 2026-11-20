@@ -71,20 +71,28 @@ const envSchema = z.object({
   // Optional explicit paths; when unset the system PATH is used.
   FFPROBE_PATH: z.string().optional().default('ffprobe'),
 
+  // --- AI assistant (Groq) ---
+  // AI_PROVIDER / AI_API_KEY / AI_MODEL are the documented names. The older
+  // GROQ_* names stay supported as aliases so existing deployments keep
+  // working; the resolution below prefers AI_* when both are set.
+  // All of these are read on the server only and never reach the browser.
   AI_PROVIDER: z.enum(['none', 'groq', 'openai', 'anthropic']).default('none'),
   AI_API_KEY: z.string().optional().default(''),
   AI_MODEL: z.string().optional().default(''),
 
-  // --- Groq study assistant ---
-  // Read on the server only. Never forwarded to the browser.
   GROQ_API_KEY: z.string().optional().default(''),
-  GROQ_MODEL: z.string().optional().default('llama-3.3-70b-versatile'),
+  GROQ_MODEL: z.string().optional().default(''),
   GROQ_BASE_URL: z.string().optional().default('https://api.groq.com/openai/v1'),
   GROQ_MAX_TOKENS: z.coerce.number().int().positive().max(8192).default(2048),
   GROQ_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.4),
   GROQ_TIMEOUT_MS: z.coerce.number().int().positive().default(45_000),
   // Per-member request budget for the assistant, over RATE_LIMIT_WINDOW_MS.
   AI_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(30),
+
+  // --- Learning resource search (optional) ---
+  // Tavily key for live resource discovery. Without it the skill-learning
+  // agent shows a curated, clearly-labelled list instead of inventing links.
+  SEARCH_API_KEY: z.string().optional().default(''),
 
   // --- WebRTC signalling ---
   // Comma-separated STUN/TURN URLs handed to the browser as ICE servers. TURN
@@ -132,6 +140,26 @@ if (isProd) {
   }
 }
 
+/**
+ * Resolves the assistant configuration from either naming scheme.
+ *
+ * AI_PROVIDER=none is an explicit opt-out and short-circuits everything else.
+ * An unsupported provider is reported rather than silently downgraded, so an
+ * operator who writes AI_PROVIDER=openai is told Groq is the supported backend
+ * instead of wondering why answers never arrive.
+ */
+const aiProviderRaw = raw.AI_PROVIDER;
+const aiKeyFromAi = raw.AI_API_KEY.trim();
+const aiKeyFromGroq = raw.GROQ_API_KEY.trim();
+const aiKey = aiProviderRaw === 'none' ? '' : aiKeyFromAi || aiKeyFromGroq;
+const aiModel = raw.AI_MODEL.trim() || raw.GROQ_MODEL.trim() || 'openai/gpt-oss-120b';
+
+const aiMissingEnv: string[] = [];
+if (aiProviderRaw !== 'none') {
+  if (!aiKeyFromAi && !aiKeyFromGroq) aiMissingEnv.push('AI_API_KEY');
+  if (!raw.AI_MODEL.trim() && !raw.GROQ_MODEL.trim()) aiMissingEnv.push('AI_MODEL');
+}
+
 export const env = {
   ...raw,
   isProd,
@@ -142,19 +170,26 @@ export const env = {
   uploadDirAbs: path.resolve(process.cwd(), raw.UPLOAD_DIR),
   mediaTempDirAbs: path.resolve(process.cwd(), raw.MEDIA_TEMP_DIR),
   mediaSigningSecret: raw.MEDIA_SIGNING_SECRET || raw.ACCESS_TOKEN_SECRET,
-  // The study assistant is live only when a Groq key is actually present.
-  aiEnabled: Boolean(raw.GROQ_API_KEY),
-  aiProvider: raw.GROQ_API_KEY ? 'groq' : 'none',
-  groqApiKey: raw.GROQ_API_KEY,
+  // The assistant is live only when a key is actually present. A provider
+  // explicitly set to "none" wins over a leftover key, so disabling the
+  // assistant does not require deleting the secret.
+  aiEnabled: Boolean(aiKey),
+  aiProvider: aiKey ? 'groq' : 'none',
+  groqApiKey: aiKey,
+  groqModel: aiModel,
+  searchApiKey: raw.SEARCH_API_KEY.trim(),
+  searchEnabled: Boolean(raw.SEARCH_API_KEY.trim()),
+  /** Names of the environment variables an operator still has to set. */
+  aiMissingEnv,
   stunUrls: csv(raw.WEBRTC_STUN_URLS),
   turnUrls: csv(raw.WEBRTC_TURN_URLS),
   webrtcConfigured: csv(raw.WEBRTC_TURN_URLS).length > 0 || csv(raw.WEBRTC_STUN_URLS).length > 0,
 };
 
-if (isProd && !raw.GROQ_API_KEY) {
+if (isProd && !aiKey) {
   // Not fatal: the platform works without the assistant. The API answers 501
   // with an explicit message rather than pretending a model replied.
-  console.warn('[config] GROQ_API_KEY is not set — the AI Study Assistant will report itself as not configured.');
+  console.warn('[config] AI_API_KEY is not set — the AI Study Assistant will report itself as not configured.');
 }
 
 export type Env = typeof env;
