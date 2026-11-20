@@ -12,16 +12,19 @@ import {
   Linkedin,
   MapPin,
   MessageSquare,
+  Phone,
   Send,
   Star,
   Bookmark,
   UserPlus,
   UserMinus,
   Users,
+  Video,
 } from 'lucide-react';
 import { PageContainer } from '@/components/layout/Layouts';
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { Button } from '@/components/ui/Button';
+import { useCall } from '@/providers/CallProvider';
 import { Card, CardBody, CardHeader, StatCard } from '@/components/ui/Card';
 import { Avatar } from '@/components/ui/Avatar';
 import { Badge, FormatBadge, SkillChip, VerifiedBadge } from '@/components/ui/Badge';
@@ -50,6 +53,7 @@ export default function MemberProfilePage() {
   const navigate = useNavigate();
   const toast = useToast();
   const { user, isAuthenticated } = useAuth();
+  const { startCall, inCall, starting: callStarting } = useCall();
 
   const { data: member, isLoading, isError, error, refetch } = useMemberProfile(username);
   const toggleFollow = useToggleFollow();
@@ -283,6 +287,24 @@ export default function MemberProfilePage() {
                     leftIcon={<MessageSquare className="h-4 w-4" aria-hidden="true" />}
                   >
                     Message
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    disabled={!member.viewer.canMessage || inCall || callStarting}
+                    onClick={() => void startCall(member.username, 'AUDIO')}
+                    leftIcon={<Phone className="h-4 w-4" aria-hidden="true" />}
+                    aria-label={`Start an audio call with ${member.displayName}`}
+                  >
+                    Audio
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    disabled={!member.viewer.canMessage || inCall || callStarting}
+                    onClick={() => void startCall(member.username, 'VIDEO')}
+                    leftIcon={<Video className="h-4 w-4" aria-hidden="true" />}
+                    aria-label={`Start a video call with ${member.displayName}`}
+                  >
+                    Video
                   </Button>
                   <Button
                     onClick={() => {

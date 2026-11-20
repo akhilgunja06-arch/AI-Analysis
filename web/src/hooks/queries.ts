@@ -12,8 +12,14 @@ import type {
   AdminUser,
   AiConversation,
   AiConversationDetail,
+  AiMessage,
+  AiSendResult,
   AuditEntry,
   CalendarSession,
+  CallHistoryEntry,
+  CallSession,
+  CallStatus,
+  CallType,
   Category,
   ChatMessage,
   CommunityCommentItem,
@@ -26,11 +32,13 @@ import type {
   ExchangeSummary,
   ExchangeWorkspace,
   FaqCategory,
+  IceServer,
   IntegrationStatus,
   LearningPayload,
   Match,
   MatchCriteria,
   MemberProfileResponse,
+  ModerationStanding,
   MediaAsset,
   NotificationItem,
   PlatformStats,
@@ -83,6 +91,10 @@ export const keys = {
   myMedia: (filters: Record<string, unknown>) => ['media', 'mine', filters] as const,
   aiConversations: ['ai', 'conversations'] as const,
   aiConversation: (id: string) => ['ai', 'conversation', id] as const,
+  calls: ['calls', 'history'] as const,
+  call: (id: string) => ['calls', 'one', id] as const,
+  iceServers: ['calls', 'ice'] as const,
+  moderation: ['messages', 'moderation'] as const,
 };
 
 // ------------------------------------------------------------- public data
@@ -696,7 +708,7 @@ export function useMarkAnswer() {
 export function useReportContent() {
   return useMutation({
     mutationFn: (input: { targetType: string; targetId: string; reason: string; details?: string }) =>
-      api.post('/community/report', input),
+      api.post('/reports', input),
   });
 }
 
@@ -1112,10 +1124,122 @@ export function useSendAiMessage() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ conversationId, content }: { conversationId: string; content: string }) =>
-      api.post<AiConversationDetail>(`/ai/conversations/${conversationId}/messages`, { content }),
+      api.post<AiSendResult>(`/ai/conversations/${conversationId}/messages`, { content }),
     onSettled: (_result, _error, variables) => {
       void queryClient.invalidateQueries({ queryKey: keys.aiConversation(variables.conversationId) });
       void queryClient.invalidateQueries({ queryKey: keys.aiConversations });
     },
+  });
+}
+
+export function useRetryAiMessage() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (conversationId: string) =>
+      api.post<{ assistantMessage: AiMessage }>(`/ai/conversations/${conversationId}/retry`, {}),
+    onSettled: (_result, _error, conversationId) => {
+      void queryClient.invalidateQueries({ queryKey: keys.aiConversation(conversationId) });
+      void queryClient.invalidateQueries({ queryKey: keys.aiConversations });
+    },
+  });
+}
+
+// ------------------------------------------------------------ email OTP
+
+export function useVerifyEmailOtp() {
+  return useMutation({
+    mutationFn: (payload: { email: string; code: string }) =>
+      api.post<{ verified: boolean; alreadyVerified: boolean }>('/auth/verify-otp', payload),
+  });
+}
+
+export function useResendEmailOtp() {
+  return useMutation({
+    mutationFn: (email: string) =>
+      api.post<{ message: string; expiresInSeconds?: number; resendAfterSeconds?: number; devOtpCode?: string }>(
+        '/auth/resend-otp',
+        { email },
+      ),
+  });
+}
+
+// ------------------------------------------------------- calls (WebRTC)
+
+export function useIceServers() {
+  return useQuery({
+    queryKey: keys.iceServers,
+    queryFn: () => api.get<{ iceServers: IceServer[]; ringTimeoutSeconds: number }>('/calls/ice'),
+    select: (res) => res.data,
+    staleTime: 30 * 60_000,
+  });
+}
+
+export function useStartCall() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { username: string; type: CallType }) =>
+      api.post<{ id: string; type: CallType; status: CallStatus; iceServers: IceServer[] }>('/calls', payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.calls });
+    },
+  });
+}
+
+export function useCall(id: string | undefined) {
+  return useQuery({
+    queryKey: keys.call(id ?? ''),
+    queryFn: () => api.get<CallSession>(`/calls/${id}`),
+    enabled: Boolean(id),
+    select: (res) => res.data,
+    refetchInterval: 0,
+  });
+}
+
+export function useAcceptCall() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.post<{ status: CallStatus; iceServers: IceServer[] }>(`/calls/${id}/accept`, {}),
+    onSuccess: (_r, id) => {
+      void queryClient.invalidateQueries({ queryKey: keys.call(id) });
+    },
+  });
+}
+
+export function useRejectCall() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.post<{ status: CallStatus }>(`/calls/${id}/reject`, {}),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.calls });
+    },
+  });
+}
+
+export function useEndCall() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post<{ status: CallStatus; durationSeconds: number | null }>(`/calls/${id}/end`, {}),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.calls });
+    },
+  });
+}
+
+export function useCallHistory() {
+  return useQuery({
+    queryKey: keys.calls,
+    queryFn: () => api.get<CallHistoryEntry[]>('/calls', { query: { page: 1 } }),
+    select: (res) => res.data,
+    staleTime: 30_000,
+  });
+}
+
+export function useModerationStanding() {
+  return useQuery({
+    queryKey: keys.moderation,
+    queryFn: () => api.get<ModerationStanding>('/messages/moderation'),
+    select: (res) => res.data,
+    staleTime: 60_000,
   });
 }

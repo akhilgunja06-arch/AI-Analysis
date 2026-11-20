@@ -1,11 +1,139 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { CheckCircle2, MailCheck, MailX } from 'lucide-react';
+import { CheckCircle2, KeyRound, MailCheck, MailX } from 'lucide-react';
 import { AuthShell } from './AuthShell';
 import { Button } from '@/components/ui/Button';
 import { LoadingState } from '@/components/ui/Feedback';
+import { useToast } from '@/components/ui/Toast';
 import { api, ApiError } from '@/lib/api';
 import { useAuth } from '@/providers/AuthProvider';
+import { useResendEmailOtp, useVerifyEmailOtp } from '@/hooks/queries';
+
+/**
+ * Six-digit code entry, shown alongside the link flow.
+ *
+ * Both paths verify the same account: the link carries a long token, the code is
+ * a short-lived six-digit number mailed to the same address. The code is never
+ * displayed here — it only travels from the email to this form.
+ */
+function OtpPanel({ initialEmail }: { initialEmail: string }) {
+  const [email, setEmail] = useState(initialEmail);
+  const [code, setCode] = useState('');
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [cooldown, setCooldown] = useState(0);
+  const verify = useVerifyEmailOtp();
+  const resend = useResendEmailOtp();
+  const toast = useToast();
+  const navigate = useNavigate();
+  const { isAuthenticated, refresh } = useAuth();
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setTimeout(() => setCooldown((value) => value - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [cooldown]);
+
+  const onSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    setError(null);
+    setMessage(null);
+    if (!/^\d{6}$/.test(code)) {
+      setError('Enter the six-digit code from your email.');
+      return;
+    }
+    try {
+      await verify.mutateAsync({ email: email.trim(), code });
+      if (isAuthenticated) await refresh();
+      toast.success('Email verified', 'Your account is now fully active.');
+      navigate('/dashboard', { replace: true });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'That code could not be verified.');
+    }
+  };
+
+  const onResend = async () => {
+    setError(null);
+    setMessage(null);
+    try {
+      const res = await resend.mutateAsync(email.trim());
+      setCooldown(res.data.resendAfterSeconds ?? 60);
+      setMessage('A new code is on its way. Check your inbox and spam folder.');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'We could not send another code.');
+    }
+  };
+
+  return (
+    <div className="mt-5 rounded-xl border p-4">
+      <div className="flex items-center gap-2">
+        <KeyRound className="h-4 w-4 text-brand-600 dark:text-brand-400" aria-hidden="true" />
+        <h2 className="text-sm font-semibold">Or enter the code from your email</h2>
+      </div>
+
+      <form onSubmit={onSubmit} className="mt-3 space-y-3" noValidate>
+        <div>
+          <label htmlFor="otp-email" className="ss-label">
+            Email address
+          </label>
+          <input
+            id="otp-email"
+            type="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            autoComplete="email"
+            className="ss-input"
+            placeholder="you@example.com"
+          />
+        </div>
+        <div>
+          <label htmlFor="otp-code" className="ss-label">
+            Six-digit code
+          </label>
+          <input
+            id="otp-code"
+            value={code}
+            onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            className="ss-input font-mono text-lg tracking-[0.4em]"
+            placeholder="000000"
+            aria-describedby="otp-hint"
+          />
+          <p id="otp-hint" className="mt-1 text-xs ss-subtle">
+            The code expires five minutes after it is sent and works once.
+          </p>
+        </div>
+
+        {error ? (
+          <p role="alert" className="text-sm text-rose-600 dark:text-rose-400">
+            {error}
+          </p>
+        ) : null}
+        {message ? (
+          <p role="status" className="text-sm text-emerald-700 dark:text-emerald-400">
+            {message}
+          </p>
+        ) : null}
+
+        <div className="flex flex-wrap gap-2">
+          <Button type="submit" loading={verify.isPending} disabled={code.length !== 6}>
+            Verify code
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => void onResend()}
+            loading={resend.isPending}
+            disabled={cooldown > 0 || !email.trim()}
+          >
+            {cooldown > 0 ? `Resend in ${cooldown}s` : 'Resend code'}
+          </Button>
+        </div>
+      </form>
+    </div>
+  );
+}
 
 type State = 'verifying' | 'success' | 'failed' | 'missing';
 
@@ -19,6 +147,7 @@ type State = 'verifying' | 'success' | 'failed' | 'missing';
 export default function VerifyEmailPage() {
   const [params] = useSearchParams();
   const token = params.get('token');
+  const emailFromQuery = params.get('email') ?? '';
   const navigate = useNavigate();
   const { isAuthenticated, refresh } = useAuth();
   const [state, setState] = useState<State>(token ? 'verifying' : 'missing');
@@ -78,6 +207,7 @@ export default function VerifyEmailPage() {
             Go to settings
           </Button>
         </Link>
+        <OtpPanel initialEmail={emailFromQuery} />
       </AuthShell>
     );
   }
@@ -112,6 +242,7 @@ export default function VerifyEmailPage() {
             <Button fullWidth>Sign in</Button>
           </Link>
         </div>
+        <OtpPanel initialEmail={emailFromQuery} />
       </AuthShell>
     );
   }

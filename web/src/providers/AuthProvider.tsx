@@ -37,7 +37,12 @@ type AuthState = {
     password: string;
     displayName: string;
     acceptedTerms: boolean;
-  }) => Promise<{ user: SessionUser; devVerificationToken?: string }>;
+  }) => Promise<{
+    user: SessionUser;
+    devVerificationToken?: string;
+    devOtpCode?: string;
+    verification?: { required: boolean; emailSent: boolean };
+  }>;
   signOut: () => Promise<void>;
   applyProfileUpdate: (profile: Profile, completion: Completion) => void;
   setPreferences: (preferences: Preferences) => void;
@@ -139,10 +144,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user: SessionUser;
         accessToken: string;
         devVerificationToken?: string;
+        devOtpCode?: string;
+        verification?: { required: boolean; emailSent: boolean };
       }>('/auth/register', input);
       setAccessToken(res.data.accessToken);
       await loadMe();
-      return { user: res.data.user, devVerificationToken: res.data.devVerificationToken };
+      return {
+        user: res.data.user,
+        devVerificationToken: res.data.devVerificationToken,
+        devOtpCode: res.data.devOtpCode,
+        verification: res.data.verification,
+      };
     },
     [loadMe],
   );

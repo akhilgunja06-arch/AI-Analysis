@@ -98,17 +98,20 @@ export default function RegisterPage() {
         acceptedTerms: true,
       });
 
-      toast.success('Account created', 'Add your skills next so we can find your matches.');
-
-      if (result.devVerificationToken) {
-        // No mail provider in local development, so the token is shown instead
-        // of being silently lost.
-        toast.info(
-          'Development mode',
-          'Email delivery is disabled here. The verification token was written to the server log.',
-        );
+      if (result.verification?.required) {
+        // The account exists but is inactive until the emailed code is entered.
+        toast.success('Account created', 'Enter the six-digit code we emailed you to activate it.');
+        if (result.devOtpCode) {
+          toast.info(
+            'Development mode',
+            'Email delivery is disabled here. The code was written to the server log.',
+          );
+        }
+        navigate(`/verify-email?email=${encodeURIComponent(values.email)}`, { replace: true });
+        return;
       }
 
+      toast.success('Account created', 'Add your skills next so we can find your matches.');
       navigate('/onboarding', { replace: true });
     } catch (error) {
       if (error instanceof ApiError) {

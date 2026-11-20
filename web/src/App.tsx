@@ -35,6 +35,7 @@ const HelpPage = lazy(() => import('@/pages/HelpPage'));
 const AboutPage = lazy(() => import('@/pages/AboutPage'));
 const ContactPage = lazy(() => import('@/pages/ContactPage'));
 const AssistantPage = lazy(() => import('@/pages/AssistantPage'));
+const CallsPage = lazy(() => import('@/pages/CallsPage'));
 const PrivacyPage = lazy(() => import('@/pages/PrivacyPage'));
 const TermsPage = lazy(() => import('@/pages/TermsPage'));
 const AdminLayout = lazy(() => import('@/pages/admin/AdminLayout'));
@@ -98,6 +99,7 @@ export function App() {
           <Route path="/favorites" element={<FavoritesPage />} />
           <Route path="/media" element={<MediaPage />} />
           <Route path="/assistant" element={<AssistantPage />} />
+          <Route path="/calls" element={<CallsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Route>
       </Route>

@@ -8,8 +8,10 @@ import {
   Info,
   MessageSquare,
   MoreVertical,
+  Phone,
   Search,
   Send,
+  Video,
   Wifi,
   WifiOff,
 } from 'lucide-react';
@@ -30,6 +32,7 @@ import {
   useUnreadCount,
 } from '@/hooks/queries';
 import { useRealtime } from '@/providers/RealtimeProvider';
+import { useCall } from '@/providers/CallProvider';
 import { ApiError } from '@/lib/api';
 import { cn, relativeTime } from '@/lib/utils';
 import type { ChatMessage } from '@/lib/types';
@@ -39,11 +42,13 @@ export default function MessagesPage() {
   const navigate = useNavigate();
   const toast = useToast();
   const realtime = useRealtime();
+  const { startCall, inCall, starting: callStarting } = useCall();
 
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
   const [draft, setDraft] = useState('');
   const [reportOpen, setReportOpen] = useState(false);
+  const [reportTarget, setReportTarget] = useState<{ type: 'USER' | 'MESSAGE'; id: string } | null>(null);
   const [reportReason, setReportReason] = useState('HARASSMENT');
   const [reportDetails, setReportDetails] = useState('');
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -312,7 +317,32 @@ export default function MessagesPage() {
                   </div>
 
                   {activeConversation ? (
-                    <div className="relative">
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          activeConversation.otherUser &&
+                          void startCall(activeConversation.otherUser.username, 'AUDIO')
+                        }
+                        disabled={inCall || callStarting || !activeConversation.otherUser}
+                        className="rounded-lg border p-2 transition-colors hover:border-[rgb(var(--ss-ring))] disabled:cursor-not-allowed disabled:opacity-50"
+                        aria-label={`Start an audio call with ${activeConversation.otherUser?.displayName ?? 'this member'}`}
+                      >
+                        <Phone className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          activeConversation.otherUser &&
+                          void startCall(activeConversation.otherUser.username, 'VIDEO')
+                        }
+                        disabled={inCall || callStarting || !activeConversation.otherUser}
+                        className="rounded-lg border p-2 transition-colors hover:border-[rgb(var(--ss-ring))] disabled:cursor-not-allowed disabled:opacity-50"
+                        aria-label={`Start a video call with ${activeConversation.otherUser?.displayName ?? 'this member'}`}
+                      >
+                        <Video className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                      <div className="relative">
                       <button
                         type="button"
                         onClick={() => setActionsOpen((v) => !v)}
@@ -354,12 +384,14 @@ export default function MessagesPage() {
                             role="menuitem"
                             onClick={() => {
                               setActionsOpen(false);
+                              const peer = activeConversation?.otherUser;
+                              if (peer) setReportTarget({ type: 'USER', id: peer.id });
                               setReportOpen(true);
                             }}
                             className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-[rgb(var(--ss-border)/0.55)]"
                           >
                             <Flag className="h-4 w-4" aria-hidden="true" />
-                            Report conversation
+                            Report member
                           </button>
                           <div className="my-1 h-px bg-[rgb(var(--ss-border))]" />
                           <button
@@ -386,6 +418,7 @@ export default function MessagesPage() {
                           </button>
                         </div>
                       ) : null}
+                      </div>
                     </div>
                   ) : null}
                 </div>
@@ -439,9 +472,22 @@ export default function MessagesPage() {
                               >
                                 {message.body}
                               </div>
-                              <p className="mt-1 text-[11px] ss-subtle">
-                                {relativeTime(message.createdAt)}
-                                
+                              <p className="mt-1 flex items-center gap-2 text-[11px] ss-subtle">
+                                <span>{relativeTime(message.createdAt)}</span>
+                                {!isMine && !message.removed ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setReportTarget({ type: 'MESSAGE', id: message.id });
+                                      setReportOpen(true);
+                                    }}
+                                    className="inline-flex items-center gap-1 hover:text-brand-600"
+                                    aria-label="Report this message"
+                                  >
+                                    <Flag className="h-3 w-3" aria-hidden />
+                                    Report
+                                  </button>
+                                ) : null}
                               </p>
                             </div>
                           </div>
@@ -499,24 +545,34 @@ export default function MessagesPage() {
 
       <Modal
         open={reportOpen}
-        onClose={() => setReportOpen(false)}
-        title="Report this conversation"
-        description="Reports go to the moderation queue with the relevant messages attached."
+        onClose={() => {
+          setReportOpen(false);
+          setReportTarget(null);
+        }}
+        title={reportTarget?.type === 'MESSAGE' ? 'Report this message' : 'Report this member'}
+        description="Reports go to the moderation queue. A moderator can read the conversation you share with this member."
         size="sm"
         footer={
           <>
-            <Button variant="ghost" onClick={() => setReportOpen(false)}>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setReportOpen(false);
+                setReportTarget(null);
+              }}
+            >
               Cancel
             </Button>
             <Button
               variant="danger"
               loading={reportContent.isPending}
+              disabled={!reportTarget}
               onClick={() => {
-                if (!conversationId) return;
+                if (!reportTarget) return;
                 reportContent.mutate(
                   {
-                    targetType: 'CONVERSATION',
-                    targetId: conversationId,
+                    targetType: reportTarget.type,
+                    targetId: reportTarget.id,
                     reason: reportReason,
                     details: reportDetails.trim() || undefined,
                   },
@@ -524,6 +580,7 @@ export default function MessagesPage() {
                     onSuccess: () => {
                       toast.success('Report submitted', 'A moderator will review it.');
                       setReportOpen(false);
+                      setReportTarget(null);
                       setReportDetails('');
                     },
                     onError: (err) =>
@@ -546,7 +603,6 @@ export default function MessagesPage() {
               { value: 'HARASSMENT', label: 'Harassment or abuse' },
               { value: 'SPAM', label: 'Spam or advertising' },
               { value: 'INAPPROPRIATE_CONTENT', label: 'Inappropriate content' },
-              { value: 'SCAM', label: 'Attempted scam or fraud' },
               { value: 'OTHER', label: 'Something else' },
             ]}
           />
