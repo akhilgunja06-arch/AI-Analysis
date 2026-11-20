@@ -112,7 +112,6 @@ export default function SettingsPage() {
   const [deactivateOpen, setDeactivateOpen] = useState(false);
   const [revoking, setRevoking] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
-  const [resendingVerification, setResendingVerification] = useState(false);
   const [blockedListOpen, setBlockedListOpen] = useState(false);
   const [blocked, setBlocked] = useState<{ username: string; displayName: string }[]>([]);
   const loadedOnce = useRef(false);
@@ -221,21 +220,6 @@ export default function SettingsPage() {
       setPasswordError(err instanceof ApiError ? err.message : 'We could not change your password.');
     } finally {
       setChangingPassword(false);
-    }
-  };
-
-  const resendVerification = async () => {
-    setResendingVerification(true);
-    try {
-      const res = await api.post<{ devVerificationToken?: string }>('/auth/resend-verification');
-      toast.success('Verification email sent', 'Check your inbox.');
-      if (res.data.devVerificationToken) {
-        toast.info('Development mode', `Verification token: ${res.data.devVerificationToken}`);
-      }
-    } catch (err) {
-      toast.error('Could not send the email', err instanceof ApiError ? err.message : undefined);
-    } finally {
-      setResendingVerification(false);
     }
   };
 
@@ -583,18 +567,9 @@ export default function SettingsPage() {
                       <p className="text-xs ss-subtle">Email address</p>
                       <p className="mt-0.5 break-all font-medium">{data.account.email}</p>
                     </div>
-                    {data.account.emailVerified ? (
-                      <Badge variant="success" icon={<Check className="h-3 w-3" aria-hidden="true" />}>
-                        Verified
-                      </Badge>
-                    ) : (
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge variant="warning">Not verified</Badge>
-                        <Button size="sm" variant="secondary" loading={resendingVerification} onClick={resendVerification}>
-                          Resend email
-                        </Button>
-                      </div>
-                    )}
+                    <Badge variant="success" icon={<Check className="h-3 w-3" aria-hidden="true" />}>
+                      Active
+                    </Badge>
                   </div>
 
                   <dl className="grid gap-3 sm:grid-cols-3">

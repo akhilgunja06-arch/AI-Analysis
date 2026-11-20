@@ -57,8 +57,8 @@ describe('registration', () => {
     expect(stored?.passwordHash).toBeTruthy();
     expect(stored?.passwordHash).not.toContain(TEST_PASSWORD);
     expect(stored?.passwordHash.startsWith('$2')).toBe(true);
-    // Unverified until the email link is used.
-    expect(stored?.status).toBe('PENDING_VERIFICATION');
+    // There is no verification step: the account is usable immediately.
+    expect(stored?.status).toBe('ACTIVE');
   });
 
   it('normalises the email to lower case and stores the username lower case', async () => {
@@ -139,7 +139,7 @@ describe('login', () => {
   it('signs in with correct credentials and sets an httpOnly refresh cookie', async () => {
     const account = await createAccount(baseUrl);
     const res = await api(baseUrl, 'POST', '/api/auth/login', {
-      body: { email: account.email, password: TEST_PASSWORD },
+      body: { identifier: account.email, password: TEST_PASSWORD },
     });
 
     expect(res.status).toBe(200);
@@ -149,18 +149,40 @@ describe('login', () => {
     expect(refresh).toContain('HttpOnly');
   });
 
-  it('returns the same error for an unknown email and a wrong password', async () => {
+  it('signs in with a username just as it does with an email address', async () => {
+    const account = await createAccount(baseUrl);
+    const res = await api(baseUrl, 'POST', '/api/auth/login', {
+      body: { identifier: account.username, password: TEST_PASSWORD },
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.data.user.id).toBe(account.id);
+  });
+
+  it('accepts an email address typed with different casing', async () => {
+    const account = await createAccount(baseUrl);
+    const res = await api(baseUrl, 'POST', '/api/auth/login', {
+      body: { identifier: account.email.toUpperCase(), password: TEST_PASSWORD },
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.data.user.id).toBe(account.id);
+  });
+
+  it('returns the same error for an unknown account and a wrong password', async () => {
     const account = await createAccount(baseUrl);
 
     const wrongPassword = await api(baseUrl, 'POST', '/api/auth/login', {
-      body: { email: account.email, password: 'WrongPassword#2026' },
+      body: { identifier: account.email, password: 'WrongPassword#2026' },
     });
     const unknownEmail = await api(baseUrl, 'POST', '/api/auth/login', {
-      body: { email: `nobody-${uniqueSuffix()}@example.com`, password: TEST_PASSWORD },
+      body: { identifier: `nobody-${uniqueSuffix()}@example.com`, password: TEST_PASSWORD },
+    });
+    const unknownUsername = await api(baseUrl, 'POST', '/api/auth/login', {
+      body: { identifier: `ghost${uniqueSuffix()}`, password: TEST_PASSWORD },
     });
 
     expect(wrongPassword.status).toBe(401);
     expect(unknownEmail.status).toBe(401);
+    expect(unknownUsername.status).toBe(401);
     expect(wrongPassword.body.error.message).toBe(unknownEmail.body.error.message);
   });
 
@@ -177,10 +199,10 @@ describe('login', () => {
   });
 });
 
-describe('email verification', () => {
-  it('activates the account and rejects a reused token', async () => {
+describe('no email verification', () => {
+  it('never exposes a verification step and lets a new account act immediately', async () => {
     const suffix = uniqueSuffix();
-    const registered = await api<{ data: { user: { id: string }; devVerificationToken: string } }>(
+    const registered = await api<{ data: { user: { id: string }; accessToken: string } }>(
       baseUrl,
       'POST',
       '/api/auth/register',
@@ -195,27 +217,23 @@ describe('email verification', () => {
       },
     );
 
-    const token = registered.body.data.devVerificationToken;
-    const first = await api(baseUrl, 'POST', '/api/auth/verify-email', { body: { token } });
-    expect(first.status).toBe(200);
+    expect(registered.status).toBe(201);
+    // The registration response has no OTP and no verification token.
+    expect(registered.body.data).not.toHaveProperty('devOtpCode');
+    expect(registered.body.data).not.toHaveProperty('devVerificationToken');
+    expect(registered.body.data).not.toHaveProperty('verification');
 
-    const user = await prisma.user.findUnique({
-      where: { id: registered.body.data.user.id },
-      select: { status: true, emailVerifiedAt: true },
-    });
-    expect(user?.status).toBe('ACTIVE');
-    expect(user?.emailVerifiedAt).toBeTruthy();
+    const token = registered.body.data.accessToken;
+    // A state-changing member route works with the token registration returned.
+    const me = await api<{ data: { status: string } }>(baseUrl, 'GET', '/api/auth/me', { token });
+    expect(me.status).toBe(200);
+    expect(me.body.data.status).toBe('ACTIVE');
 
-    // Single use only.
-    const second = await api(baseUrl, 'POST', '/api/auth/verify-email', { body: { token } });
-    expect(second.status).toBe(400);
-  });
-
-  it('rejects a forged token', async () => {
-    const res = await api(baseUrl, 'POST', '/api/auth/verify-email', {
-      body: { token: 'definitely-not-a-real-token-value' },
-    });
-    expect(res.status).toBe(400);
+    // The removed endpoints are genuinely gone.
+    for (const path of ['/api/auth/verify-otp', '/api/auth/resend-otp', '/api/auth/verify-email', '/api/auth/resend-verification']) {
+      const res = await api(baseUrl, 'POST', path, { body: { email: `verify-${suffix}@example.com`, code: '123456', token: 'x'.repeat(20) } });
+      expect(res.status).toBe(404);
+    }
   });
 });
 
@@ -248,12 +266,12 @@ describe('password reset', () => {
 
     // The old password no longer works; the new one does.
     const oldLogin = await api(baseUrl, 'POST', '/api/auth/login', {
-      body: { email: account.email, password: TEST_PASSWORD },
+      body: { identifier: account.email, password: TEST_PASSWORD },
     });
     expect(oldLogin.status).toBe(401);
 
     const newLogin = await api(baseUrl, 'POST', '/api/auth/login', {
-      body: { email: account.email, password: newPassword },
+      body: { identifier: account.email, password: newPassword },
     });
     expect(newLogin.status).toBe(200);
   });
@@ -292,7 +310,7 @@ describe('session management', () => {
   it('rotates the refresh token and refuses the old one', async () => {
     const account = await createAccount(baseUrl);
     const login = await api<{ data: { accessToken: string } }>(baseUrl, 'POST', '/api/auth/login', {
-      body: { email: account.email, password: TEST_PASSWORD },
+      body: { identifier: account.email, password: TEST_PASSWORD },
     });
     const originalCookies = login.cookies;
 
@@ -308,7 +326,7 @@ describe('session management', () => {
   it('lists sessions and revokes a single one', async () => {
     const account = await createAccount(baseUrl);
     const second = await api<{ data: { accessToken: string } }>(baseUrl, 'POST', '/api/auth/login', {
-      body: { email: account.email, password: TEST_PASSWORD },
+      body: { identifier: account.email, password: TEST_PASSWORD },
     });
 
     const listed = await api<{ data: { sessions: { id: string; current: boolean }[] } }>(
@@ -334,7 +352,7 @@ describe('password change', () => {
   it('requires the current password and revokes other sessions', async () => {
     const account = await createAccount(baseUrl);
     const otherSession = await api<{ data: { accessToken: string } }>(baseUrl, 'POST', '/api/auth/login', {
-      body: { email: account.email, password: TEST_PASSWORD },
+      body: { identifier: account.email, password: TEST_PASSWORD },
     });
 
     const wrong = await api(baseUrl, 'PATCH', '/api/settings/password', {
@@ -364,18 +382,21 @@ describe('password change', () => {
   });
 });
 
-describe('unverified accounts', () => {
-  it('can read their profile but cannot send exchange requests', async () => {
-    const unverified = await createAccount(baseUrl, { verify: false });
+describe('account status gating', () => {
+  it('refuses a suspended account but keeps a fresh account fully usable', async () => {
+    const fresh = await createAccount(baseUrl);
     const target = await createAccount(baseUrl);
 
-    expect((await api(baseUrl, 'GET', '/api/profile', { token: unverified.token })).status).toBe(200);
-
-    const blocked = await api(baseUrl, 'POST', '/api/exchanges/requests', {
-      token: unverified.token,
+    // A new account can act straight away.
+    const allowed = await api(baseUrl, 'POST', '/api/exchanges/requests', {
+      token: fresh.token,
       body: { recipientId: target.id },
     });
-    expect(blocked.status).toBe(403);
-    expect(blocked.body.error.details?.reason).toBe('EMAIL_NOT_VERIFIED');
+    expect(allowed.status).toBe(201);
+
+    // Suspension is still enforced, and it is not triggered by a first message.
+    await prisma.user.update({ where: { id: target.id }, data: { status: 'SUSPENDED' } });
+    const suspended = await api(baseUrl, 'GET', '/api/profile', { token: target.token });
+    expect(suspended.status).toBe(403);
   });
 });

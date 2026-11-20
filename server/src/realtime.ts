@@ -14,10 +14,18 @@ import { prisma } from './lib/prisma';
  *    subscribe to another member's stream;
  *  - message delivery is additionally authorised against conversation
  *    membership on every send (see messaging.routes.ts), so a forged
- *    conversationId cannot leak history.
+ *    conversationId cannot leak history;
+ *  - typing events are only relayed for conversations the sender belongs to.
+ *
+ * Presence is tracked in memory: this is a single-node deployment, and the set
+ * is used only to answer "is this member connected right now" and to mark a
+ * message delivered.
  */
 
 let io: IOServer | null = null;
+
+/** userId -> number of live sockets (a member may have several tabs open). */
+const connections = new Map<string, number>();
 
 export function getIo(): IOServer | null {
   return io;
@@ -33,6 +41,33 @@ export function emitToConversation(conversationId: string, event: string, payloa
 
 export function realtimeEnabled(): boolean {
   return io !== null;
+}
+
+/** The set of member ids with at least one live socket. */
+export function onlineUserIds(): Set<string> {
+  return new Set(connections.keys());
+}
+
+export function isOnline(userId: string): boolean {
+  return connections.has(userId);
+}
+
+/**
+ * Who else should know that this member's presence changed? Only people they
+ * already share a conversation with, so presence is not broadcast platform-wide.
+ */
+async function presenceAudience(userId: string): Promise<string[]> {
+  const parts = await prisma.conversationParticipant.findMany({
+    where: { userId },
+    select: { conversation: { select: { participants: { select: { userId: true } } } } },
+  });
+  const audience = new Set<string>();
+  for (const part of parts) {
+    for (const peer of part.conversation.participants) {
+      if (peer.userId !== userId) audience.add(peer.userId);
+    }
+  }
+  return [...audience];
 }
 
 export function initRealtime(server: HttpServer): IOServer {
@@ -76,6 +111,9 @@ export function initRealtime(server: HttpServer): IOServer {
     const userId = socket.data.userId as string;
     socket.join(`user:${userId}`);
 
+    const previous = connections.get(userId) ?? 0;
+    connections.set(userId, previous + 1);
+
     // Join the rooms of conversations this user is actually a member of.
     try {
       const parts = await prisma.conversationParticipant.findMany({
@@ -83,6 +121,25 @@ export function initRealtime(server: HttpServer): IOServer {
         select: { conversationId: true },
       });
       for (const part of parts) socket.join(`conversation:${part.conversationId}`);
+
+      await prisma.user.update({ where: { id: userId }, data: { lastSeenAt: new Date() } });
+
+      // A member coming online means anything queued for them is now delivered.
+      await prisma.message.updateMany({
+        where: {
+          deliveredAt: null,
+          deletedAt: null,
+          senderId: { not: userId },
+          conversation: { participants: { some: { userId } } },
+        },
+        data: { deliveredAt: new Date() },
+      });
+
+      if (previous === 0) {
+        for (const peerId of await presenceAudience(userId)) {
+          emitToUser(peerId, 'presence:update', { userId, online: true, lastSeenAt: new Date().toISOString() });
+        }
+      }
     } catch (err) {
       logger.error('socket.room_join_failed', { userId, err });
     }
@@ -102,13 +159,32 @@ export function initRealtime(server: HttpServer): IOServer {
       ack?.(true);
     });
 
-    socket.on('typing', (payload: { conversationId: string; typing: boolean }) => {
-      if (!payload?.conversationId) return;
-      socket.to(`conversation:${payload.conversationId}`).emit('typing', {
-        conversationId: payload.conversationId,
-        userId,
-        typing: Boolean(payload.typing),
-      });
+    socket.on('conversation:leave', (conversationId: string) => {
+      if (typeof conversationId === 'string') socket.leave(`conversation:${conversationId}`);
+    });
+
+    /**
+     * Typing indicator. The room membership is checked first so a member cannot
+     * make a stranger's conversation show "someone is typing".
+     */
+    socket.on('typing', async (payload: { conversationId: string; typing: boolean }, ack?: (ok: boolean) => void) => {
+      if (!payload?.conversationId) return ack?.(false);
+      try {
+        const member = await prisma.conversationParticipant.findUnique({
+          where: { conversationId_userId: { conversationId: payload.conversationId, userId } },
+          select: { id: true },
+        });
+        if (!member) return ack?.(false);
+        socket.to(`conversation:${payload.conversationId}`).emit('typing', {
+          conversationId: payload.conversationId,
+          userId,
+          typing: Boolean(payload.typing),
+        });
+        return ack?.(true);
+      } catch (err) {
+        logger.error('socket.typing_failed', { userId, err });
+        return ack?.(false);
+      }
     });
 
     /**
@@ -154,8 +230,23 @@ export function initRealtime(server: HttpServer): IOServer {
     // actually writes the call record.
     socket.on('call:hangup', (payload) => void relaySignal('call:hangup', payload));
 
-    socket.on('disconnect', (reason) => {
+    socket.on('disconnect', async (reason) => {
       logger.debug('socket.disconnected', { userId, reason });
+      const remaining = (connections.get(userId) ?? 1) - 1;
+      if (remaining > 0) {
+        connections.set(userId, remaining);
+        return;
+      }
+      connections.delete(userId);
+      try {
+        const lastSeenAt = new Date();
+        await prisma.user.update({ where: { id: userId }, data: { lastSeenAt } });
+        for (const peerId of await presenceAudience(userId)) {
+          emitToUser(peerId, 'presence:update', { userId, online: false, lastSeenAt: lastSeenAt.toISOString() });
+        }
+      } catch (err) {
+        logger.error('socket.presence_offline_failed', { userId, err });
+      }
     });
   });
 

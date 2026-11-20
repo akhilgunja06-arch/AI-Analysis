@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
-  BadgeCheck,
   Filter,
   Languages,
   MapPin,
@@ -261,9 +260,6 @@ export default function MembersPage() {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5">
                           <h2 className="truncate font-display text-base font-semibold">{member.displayName}</h2>
-                          {member.emailVerified ? (
-                            <BadgeCheck className="h-4 w-4 shrink-0 text-emerald-500" aria-label="Verified member" />
-                          ) : null}
                         </div>
                         <p className="truncate text-xs ss-subtle">@{member.username}</p>
                         {member.location ? (

@@ -31,7 +31,7 @@ export default function TermsPage() {
           body: (
             <ul className="ml-5 list-disc space-y-2">
               <li>You must be at least 18 years old.</li>
-              <li>You must provide a working email address and verify it to unlock requests, messaging and community posting.</li>
+              <li>You must provide a working email address. There is no separate email verification step — your account is usable as soon as you register.</li>
               <li>You may hold one account. Creating accounts to evade a suspension or a block is not allowed.</li>
               <li>You must not be barred from using the service under the law that applies to you.</li>
             </ul>

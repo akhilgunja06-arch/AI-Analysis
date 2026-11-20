@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma';
 import { asyncHandler, validateBody, validateParams, validateQuery } from '../lib/http';
 import { created, noContent, ok, paginated, parsePagination } from '../lib/respond';
 import { ApiError } from '../lib/errors';
-import { optionalAuthenticate, requireAuth, requireVerified } from '../middleware/auth';
+import { optionalAuthenticate, requireAuth } from '../middleware/auth';
 import { uuidSchema } from '../lib/validation';
 import { writeLimiter } from '../middleware/errors';
 import { createNotification } from '../services/notification.service';
@@ -239,7 +239,6 @@ communityRouter.get(
 communityRouter.post(
   '/posts',
   requireAuth,
-  requireVerified,
   writeLimiter,
   validateBody(
     z.object({
@@ -307,7 +306,7 @@ communityRouter.post(
 /** PATCH /api/community/posts/:id — author or moderator. */
 communityRouter.patch(
   '/posts/:id',
-  requireVerified,
+  requireAuth,
   validateParams(z.object({ id: uuidSchema })),
   validateBody(
     z.object({
@@ -370,7 +369,7 @@ communityRouter.delete(
 /** POST /api/community/posts/:id/vote — toggle a helpful vote. */
 communityRouter.post(
   '/posts/:id/vote',
-  requireVerified,
+  requireAuth,
   validateParams(z.object({ id: uuidSchema })),
   validateBody(z.object({ value: z.union([z.literal(1), z.literal(-1), z.literal(0)]) })),
   asyncHandler(async (req, res) => {
@@ -419,7 +418,7 @@ communityRouter.post(
 /** POST /api/community/posts/:id/comments */
 communityRouter.post(
   '/posts/:id/comments',
-  requireVerified,
+  requireAuth,
   writeLimiter,
   validateParams(z.object({ id: uuidSchema })),
   validateBody(
@@ -512,7 +511,7 @@ communityRouter.post(
 /** POST /api/community/comments/:id/vote */
 communityRouter.post(
   '/comments/:id/vote',
-  requireVerified,
+  requireAuth,
   validateParams(z.object({ id: uuidSchema })),
   validateBody(z.object({ value: z.union([z.literal(1), z.literal(-1), z.literal(0)]) })),
   asyncHandler(async (req, res) => {
@@ -561,7 +560,7 @@ communityRouter.post(
 /** POST /api/community/comments/:id/answer — post author marks the answer. */
 communityRouter.post(
   '/comments/:id/answer',
-  requireVerified,
+  requireAuth,
   validateParams(z.object({ id: uuidSchema })),
   asyncHandler(async (req, res) => {
     const { id } = res.locals.params as { id: string };

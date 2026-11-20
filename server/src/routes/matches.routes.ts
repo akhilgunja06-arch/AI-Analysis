@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma';
 import { asyncHandler, validateParams, validateQuery } from '../lib/http';
 import { noContent, ok } from '../lib/respond';
 import { ApiError } from '../lib/errors';
-import { requireAuth, requireVerified } from '../middleware/auth';
+import { requireAuth } from '../middleware/auth';
 import { uuidSchema } from '../lib/validation';
 import {
   MATCH_WEIGHTS,
@@ -286,7 +286,7 @@ matchesRouter.delete(
  */
 matchesRouter.get(
   '/ai/suggestions',
-  requireVerified,
+  requireAuth,
   asyncHandler(async (_req, res) => {
     throw ApiError.notImplemented(
       'AI-assisted suggestions are not configured on this deployment. The deterministic matching engine on /api/matches remains fully available.',

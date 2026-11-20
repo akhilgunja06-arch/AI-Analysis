@@ -36,7 +36,7 @@ import type { CommunityCommentItem } from '@/lib/types';
 export default function CommunityPostPage() {
   const { id } = useParams<{ id: string }>();
   const toast = useToast();
-  const { isAuthenticated, isVerified } = useAuth();
+  const { isAuthenticated } = useAuth();
 
   const { data, isLoading, isError, error, refetch } = useCommunityPost(id);
   const votePost = useVotePost();
@@ -167,7 +167,7 @@ export default function CommunityPostPage() {
             <div className="flex items-center gap-1 rounded-xl border p-1">
               <button
                 type="button"
-                disabled={!isAuthenticated || !isVerified}
+                disabled={!isAuthenticated}
                 onClick={() =>
                   votePost.mutate(
                     { id: post.id, value: post.myVote === 1 ? 0 : 1 },
@@ -176,7 +176,7 @@ export default function CommunityPostPage() {
                 }
                 aria-label="Upvote this post"
                 aria-pressed={post.myVote === 1}
-                title={!isVerified ? 'Verify your email to vote' : undefined}
+                
                 className={cn(
                   'rounded-lg p-2 transition-colors disabled:opacity-50',
                   post.myVote === 1 ? 'bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300' : 'ss-subtle hover:bg-[rgb(var(--ss-border)/0.6)]',
@@ -187,7 +187,7 @@ export default function CommunityPostPage() {
               <span className="min-w-[2ch] text-center text-sm font-bold tabular-nums">{post.voteCount}</span>
               <button
                 type="button"
-                disabled={!isAuthenticated || !isVerified}
+                disabled={!isAuthenticated}
                 onClick={() =>
                   votePost.mutate(
                     { id: post.id, value: post.myVote === -1 ? 0 : -1 },
@@ -237,7 +237,7 @@ export default function CommunityPostPage() {
               onVote={(value) => voteComment.mutate({ id: accepted.id, value })}
               onReport={() => setReporting(accepted.id)}
               onMarkAnswer={undefined}
-              canInteract={isAuthenticated && isVerified}
+              canInteract={isAuthenticated}
               highlight
             />
           </CardBody>
@@ -281,7 +281,7 @@ export default function CommunityPostPage() {
                             )
                         : undefined
                     }
-                    canInteract={isAuthenticated && isVerified}
+                    canInteract={isAuthenticated}
                     highlight={comment.isAnswer}
                   />
                 </li>
@@ -317,13 +317,13 @@ export default function CommunityPostPage() {
                     ? 'Explain what worked for you and why. Include the trade-offs.'
                     : 'Add to the discussion.'
                 }
-                hint={!isVerified ? 'Verify your email address to post replies.' : undefined}
+                
               />
               <Button
                 className="mt-3"
                 onClick={submitReply}
                 loading={createComment.isPending}
-                disabled={reply.trim().length < 2 || !isVerified}
+                disabled={reply.trim().length < 2}
               >
                 Post {replyTo ? 'reply' : isQuestion ? 'answer' : 'reply'}
               </Button>

@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma';
 import { asyncHandler, validateBody, validateParams, validateQuery } from '../lib/http';
 import { created, noContent, ok, paginated } from '../lib/respond';
 import { ApiError } from '../lib/errors';
-import { requireAuth, requireVerified } from '../middleware/auth';
+import { requireAuth } from '../middleware/auth';
 import { uuidSchema } from '../lib/validation';
 import { env } from '../config/env';
 import { completeChat, type ChatTurn } from '../services/groq.service';
@@ -137,7 +137,7 @@ const sendMessageSchema = z.object({
  */
 aiRouter.post(
   '/conversations/:id/messages',
-  requireVerified,
+  requireAuth,
   writeLimiter,
   validateParams(z.object({ id: uuidSchema })),
   validateBody(sendMessageSchema),
@@ -242,7 +242,7 @@ aiRouter.post(
 /** POST /api/ai/conversations/:id/retry — regenerate the last assistant reply. */
 aiRouter.post(
   '/conversations/:id/retry',
-  requireVerified,
+  requireAuth,
   writeLimiter,
   validateParams(z.object({ id: uuidSchema })),
   asyncHandler(async (req, res) => {

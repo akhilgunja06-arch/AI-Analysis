@@ -416,9 +416,6 @@ export default function LandingPage() {
                             <h3 className="truncate font-display text-base font-semibold">
                               {member.displayName}
                             </h3>
-                            {member.emailVerified ? (
-                              <BadgeCheck className="h-4 w-4 shrink-0 text-emerald-500" aria-label="Verified member" />
-                            ) : null}
                           </div>
                           <p className="truncate text-xs ss-subtle">@{member.username}</p>
                           {member.stats.averageRating !== null ? (

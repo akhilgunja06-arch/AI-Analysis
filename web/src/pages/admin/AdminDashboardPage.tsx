@@ -73,13 +73,6 @@ export default function AdminDashboardPage() {
           tone="emerald"
         />
         <StatCard
-          label="Unverified"
-          value={<AnimatedCounter value={data.users.pendingVerification} />}
-          hint="Have not confirmed their email"
-          icon={<UserPlus className="h-5 w-5" aria-hidden="true" />}
-          tone="amber"
-        />
-        <StatCard
           label="Suspended"
           value={<AnimatedCounter value={data.users.suspended} />}
           hint="Accounts currently restricted"

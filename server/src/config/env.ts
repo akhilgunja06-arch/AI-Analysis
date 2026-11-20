@@ -86,17 +86,6 @@ const envSchema = z.object({
   // Per-member request budget for the assistant, over RATE_LIMIT_WINDOW_MS.
   AI_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(30),
 
-  // --- Email OTP verification ---
-  OTP_TTL_SECONDS: z.coerce.number().int().positive().default(300),
-  OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().positive().default(60),
-  OTP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
-  // When true a new account stays PENDING_VERIFICATION until the OTP is
-  // confirmed. Turn off only for local experiments, never in production.
-  REQUIRE_EMAIL_OTP: z
-    .string()
-    .default('true')
-    .transform((v) => v === 'true'),
-
   // --- WebRTC signalling ---
   // Comma-separated STUN/TURN URLs handed to the browser as ICE servers. TURN
   // credentials stay server-side and are minted into a short-lived credential

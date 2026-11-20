@@ -28,21 +28,15 @@ type AuthState = {
   isAuthenticated: boolean;
   isStaff: boolean;
   isAdmin: boolean;
-  isVerified: boolean;
   refresh: () => Promise<void>;
-  signIn: (email: string, password: string) => Promise<SessionUser>;
+  signIn: (identifier: string, password: string) => Promise<SessionUser>;
   register: (input: {
     email: string;
     username: string;
     password: string;
     displayName: string;
     acceptedTerms: boolean;
-  }) => Promise<{
-    user: SessionUser;
-    devVerificationToken?: string;
-    devOtpCode?: string;
-    verification?: { required: boolean; emailSent: boolean };
-  }>;
+  }) => Promise<{ user: SessionUser }>;
   signOut: () => Promise<void>;
   applyProfileUpdate: (profile: Profile, completion: Completion) => void;
   setPreferences: (preferences: Preferences) => void;
@@ -78,7 +72,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       username: me.data.username,
       role: me.data.role,
       status: me.data.status,
-      emailVerified: me.data.emailVerified,
     });
     setProfile(me.data.profile);
     setPreferences(me.data.preferences);
@@ -126,9 +119,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [loadMe]);
 
   const signIn = useCallback(
-    async (email: string, password: string) => {
+    async (identifier: string, password: string) => {
       const res = await api.post<{ user: SessionUser; accessToken: string }>('/auth/login', {
-        email,
+        identifier,
         password,
       });
       setAccessToken(res.data.accessToken);
@@ -140,21 +133,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const register = useCallback<AuthState['register']>(
     async (input) => {
-      const res = await api.post<{
-        user: SessionUser;
-        accessToken: string;
-        devVerificationToken?: string;
-        devOtpCode?: string;
-        verification?: { required: boolean; emailSent: boolean };
-      }>('/auth/register', input);
+      const res = await api.post<{ user: SessionUser; accessToken: string }>('/auth/register', input);
       setAccessToken(res.data.accessToken);
       await loadMe();
-      return {
-        user: res.data.user,
-        devVerificationToken: res.data.devVerificationToken,
-        devOtpCode: res.data.devOtpCode,
-        verification: res.data.verification,
-      };
+      return { user: res.data.user };
     },
     [loadMe],
   );
@@ -183,7 +165,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: Boolean(user),
       isStaff: user?.role === 'ADMIN' || user?.role === 'MODERATOR',
       isAdmin: user?.role === 'ADMIN',
-      isVerified: Boolean(user?.emailVerified),
       refresh,
       signIn,
       register,

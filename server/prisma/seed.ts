@@ -80,7 +80,7 @@ type MemberSeed = {
   timezone: string;
   languages: string[];
   role?: 'MEMBER' | 'MODERATOR' | 'ADMIN';
-  status?: 'ACTIVE' | 'PENDING_VERIFICATION';
+  status?: 'ACTIVE';
   teaches: { name: string; level: SkillLevel; description?: string; portfolioUrl?: string }[];
   wants: { name: string; level: SkillLevel }[];
   availability: { weekday: number; start: number; end: number }[];
@@ -565,7 +565,6 @@ async function main() {
         passwordHash,
         role: member.role ?? 'MEMBER',
         status: member.status ?? 'ACTIVE',
-        emailVerifiedAt: (member.status ?? 'ACTIVE') === 'ACTIVE' ? new Date() : null,
         profile: {
           create: {
             displayName: member.displayName,
@@ -1037,6 +1036,72 @@ async function main() {
     ],
   });
   await prisma.communityPost.update({ where: { id: post3.id }, data: { commentCount: 2 } });
+
+  // ---- demo conversations so the messages page has something to open
+  const directKey = (a: string, b: string) => [a, b].sort().join(':');
+  const conversationSeeds: {
+    a: string;
+    b: string;
+    messages: { from: string; body: string; minutesAgo: number }[];
+  }[] = [
+    {
+      a: 'priya',
+      b: 'tom',
+      messages: [
+        { from: 'priya', body: 'Hi Tom! Ready for the TypeScript session tomorrow?', minutesAgo: 180 },
+        { from: 'tom', body: 'Yes — I went through generics again and it finally clicked.', minutesAgo: 174 },
+        { from: 'priya', body: 'That is great. Bring the talk outline and we will trim the intro.', minutesAgo: 170 },
+        { from: 'tom', body: 'Will do. I also recorded a dry run, want me to share it?', minutesAgo: 40 },
+      ],
+    },
+    {
+      a: 'amara',
+      b: 'lucas',
+      messages: [
+        { from: 'amara', body: 'Hey Lucas, your UI design portfolio is really good.', minutesAgo: 1440 },
+        { from: 'lucas', body: 'Thanks! I saw your Python notes on data cleaning — that is exactly what I need.', minutesAgo: 1430 },
+        { from: 'amara', body: 'Happy to walk you through it this week if you like.', minutesAgo: 1425 },
+      ],
+    },
+  ];
+
+  // Conversations have no user foreign key of their own, so removing the seed
+  // accounts leaves them behind. Clear the demo ones first so re-seeding works.
+  await prisma.conversation.deleteMany({
+    where: { directKey: { in: conversationSeeds.map((c) => directKey(id(c.a), id(c.b))) } },
+  });
+
+  for (const seed of conversationSeeds) {
+    const participants = [id(seed.a), id(seed.b)];
+    const latest = seed.messages[seed.messages.length - 1];
+    const conversation = await prisma.conversation.create({
+      data: {
+        directKey: directKey(participants[0], participants[1]),
+        isGroup: false,
+        lastMessageAt: new Date(now - latest.minutesAgo * 60 * 1000),
+        participants: { create: participants.map((userId) => ({ userId })) },
+      },
+      select: { id: true },
+    });
+
+    await prisma.message.createMany({
+      data: seed.messages.map((message) => ({
+        conversationId: conversation.id,
+        senderId: id(message.from),
+        body: message.body,
+        createdAt: new Date(now - message.minutesAgo * 60 * 1000),
+        deliveredAt: new Date(now - message.minutesAgo * 60 * 1000),
+      })),
+    });
+
+    // The sender has read everything; the recipient has not opened the thread,
+    // so the demo shows a real unread badge.
+    await prisma.conversationParticipant.updateMany({
+      where: { conversationId: conversation.id, userId: id(latest.from) },
+      data: { lastReadAt: new Date(now - latest.minutesAgo * 60 * 1000) },
+    });
+  }
+  console.log(`  conversations: ${conversationSeeds.length}`);
 
   // ---- a notification and an audit entry so the admin/notification pages have data
   await prisma.notification.createMany({

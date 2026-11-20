@@ -4,13 +4,19 @@ import {
   ArrowLeft,
   Ban,
   BellOff,
+  BellRing,
+  Check,
+  CheckCheck,
   Flag,
+  ImagePlus,
   Info,
   MessageSquare,
   MoreVertical,
   Phone,
   Search,
   Send,
+  Trash2,
+  UserPlus,
   Video,
   Wifi,
   WifiOff,
@@ -26,22 +32,30 @@ import { useToast } from '@/components/ui/Toast';
 import {
   useBlockUser,
   useConversations,
+  useDeleteMessage,
+  useMarkConversationRead,
+  useMessageableUsers,
+  useMuteConversation,
   useReportContent,
+  useSendAttachment,
   useSendMessage,
+  useStartConversation,
   useThread,
   useUnreadCount,
 } from '@/hooks/queries';
+import { useAuth } from '@/providers/AuthProvider';
 import { useRealtime } from '@/providers/RealtimeProvider';
 import { useCall } from '@/providers/CallProvider';
 import { ApiError } from '@/lib/api';
 import { cn, relativeTime } from '@/lib/utils';
-import type { ChatMessage } from '@/lib/types';
+import type { ChatMessage, ChatPeer, MessageableUser } from '@/lib/types';
 
 export default function MessagesPage() {
   const { conversationId } = useParams<{ conversationId?: string }>();
   const navigate = useNavigate();
   const toast = useToast();
   const realtime = useRealtime();
+  const { user } = useAuth();
   const { startCall, inCall, starting: callStarting } = useCall();
 
   const [search, setSearch] = useState('');
@@ -52,23 +66,42 @@ export default function MessagesPage() {
   const [reportReason, setReportReason] = useState('HARASSMENT');
   const [reportDetails, setReportDetails] = useState('');
   const [actionsOpen, setActionsOpen] = useState(false);
+  const [findOpen, setFindOpen] = useState(false);
+  const [findTerm, setFindTerm] = useState('');
+  const [findDebounced, setFindDebounced] = useState('');
+  const [peerTyping, setPeerTyping] = useState(false);
 
   const { data: conversations, isLoading: loadingList, isError: listError, error: listErr, refetch: refetchList } =
     useConversations(debounced);
   const { data: unread } = useUnreadCount();
+  const { data: foundUsers, isFetching: searchingUsers } = useMessageableUsers(findDebounced);
 
   const thread = useThread(conversationId);
   const sendMessage = useSendMessage();
+  const sendAttachment = useSendAttachment();
+  const deleteMessage = useDeleteMessage();
+  const muteConversation = useMuteConversation();
+  // `mutate` is stable across renders, so the socket listener below is attached
+  // once per conversation rather than on every render.
+  const markRead = useMarkConversationRead().mutate;
+  const startConversation = useStartConversation();
   const blockUser = useBlockUser();
   const reportContent = useReportContent();
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const typingSentAt = useRef(0);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(search.trim()), 300);
     return () => clearTimeout(timer);
   }, [search]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setFindDebounced(findTerm.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [findTerm]);
 
   const activeConversation = useMemo(
     () => (conversations ?? []).find((conversation) => conversation.id === conversationId),
@@ -81,6 +114,12 @@ export default function MessagesPage() {
     return thread.data.pages.flatMap((page) => page.data).slice().reverse();
   }, [thread.data]);
 
+  // The peer of the open thread, from the conversation list or the thread meta.
+  const peer: ChatPeer | null =
+    activeConversation?.otherUser ??
+    (thread.data?.pages[0]?.meta?.otherUser as ChatPeer | undefined) ??
+    null;
+
   // The realtime provider already invalidates the thread and list caches when a
   // message arrives, so the only thing left is to make sure the socket is
   // subscribed to this conversation's room.
@@ -91,6 +130,46 @@ export default function MessagesPage() {
       realtime.socket?.emit('conversation:leave', { conversationId });
     };
   }, [conversationId, realtime.socket]);
+
+  // Typing indicators are relayed by the server only to the other participants.
+  useEffect(() => {
+    const socket = realtime.socket;
+    if (!socket) return;
+    const onTyping = (payload: { conversationId?: string; username?: string; typing?: boolean }) => {
+      if (payload?.conversationId !== conversationId) return;
+      setPeerTyping(Boolean(payload.typing));
+    };
+    socket.on('typing', onTyping);
+    return () => {
+      socket.off('typing', onTyping);
+      setPeerTyping(false);
+    };
+  }, [realtime.socket, conversationId]);
+
+  const notifyTyping = () => {
+    if (!conversationId || !realtime.socket) return;
+    const now = Date.now();
+    // One event every two seconds is enough to keep the indicator alive without
+    // flooding the socket on every keystroke.
+    if (now - typingSentAt.current < 2000) return;
+    typingSentAt.current = now;
+    realtime.socket.emit('typing', { conversationId, typing: true });
+  };
+
+  // A message that arrives while the thread is open is read immediately, so the
+  // sender's ticks turn blue and the open conversation shows no unread badge.
+  useEffect(() => {
+    if (!conversationId || !realtime.socket) return;
+    const onNew = (payload: { conversationId?: string; message?: { senderId?: string } }) => {
+      if (payload?.conversationId !== conversationId) return;
+      setPeerTyping(false);
+      if (payload.message?.senderId !== user?.id) markRead(conversationId);
+    };
+    realtime.socket.on('message:new', onNew);
+    return () => {
+      realtime.socket?.off('message:new', onNew);
+    };
+  }, [conversationId, realtime.socket, user?.id, markRead]);
 
   // Scroll to the newest message when the thread or conversation changes.
   useEffect(() => {
@@ -126,6 +205,14 @@ export default function MessagesPage() {
             {unread && unread > 0 ? `${unread} unread` : 'All caught up'}
           </p>
         </div>
+        <div className="flex items-center gap-2">
+        <Button
+          variant="secondary"
+          onClick={() => setFindOpen(true)}
+          leftIcon={<UserPlus className="h-4 w-4" aria-hidden="true" />}
+        >
+          Find someone
+        </Button>
         <div
           className={cn(
             'flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium',
@@ -145,6 +232,7 @@ export default function MessagesPage() {
             <WifiOff className="h-3.5 w-3.5" aria-hidden="true" />
           )}
           {realtime.connected ? 'Live' : 'Offline'}
+        </div>
         </div>
       </div>
 
@@ -293,52 +381,59 @@ export default function MessagesPage() {
                     >
                       <ArrowLeft className="h-4 w-4" aria-hidden="true" />
                     </Link>
-                    {activeConversation ? (
-                      (() => {
-                        const other = activeConversation.otherUser;
-                        return (
-                          <>
-                            <Avatar
-                              name={other?.displayName ?? 'Member'}
-                              src={other?.avatarUrl}
-                              seed={other?.username}
-                              size="md"
-                            />
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-semibold">{other?.displayName ?? 'Member'}</p>
-                              <p className="truncate text-xs ss-subtle">@{other?.username}</p>
-                            </div>
-                          </>
-                        );
-                      })()
+                    {peer ? (
+                      <>
+                        <div className="relative">
+                          <Avatar name={peer.displayName} src={peer.avatarUrl} seed={peer.username} size="md" />
+                          <span
+                            className={cn(
+                              'absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[rgb(var(--ss-bg))]',
+                              peer.online ? 'bg-emerald-500' : 'bg-slate-400',
+                            )}
+                            aria-hidden="true"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold">{peer.displayName}</p>
+                          <p className="truncate text-xs ss-subtle">
+                            {peerTyping ? (
+                              <span className="text-brand-600 dark:text-brand-300">typing…</span>
+                            ) : peer.online ? (
+                              'Online now'
+                            ) : peer.lastSeenAt ? (
+                              `Last seen ${relativeTime(peer.lastSeenAt)}`
+                            ) : (
+                              `@${peer.username}`
+                            )}
+                          </p>
+                        </div>
+                      </>
                     ) : (
                       <p className="text-sm font-semibold">Conversation</p>
                     )}
                   </div>
 
-                  {activeConversation ? (
+                  {peer ? (
                     <div className="flex items-center gap-1.5">
                       <button
                         type="button"
                         onClick={() =>
-                          activeConversation.otherUser &&
-                          void startCall(activeConversation.otherUser.username, 'AUDIO')
+                          peer && void startCall(peer.username, 'AUDIO')
                         }
-                        disabled={inCall || callStarting || !activeConversation.otherUser}
+                        disabled={inCall || callStarting || !peer}
                         className="rounded-lg border p-2 transition-colors hover:border-[rgb(var(--ss-ring))] disabled:cursor-not-allowed disabled:opacity-50"
-                        aria-label={`Start an audio call with ${activeConversation.otherUser?.displayName ?? 'this member'}`}
+                        aria-label={`Start an audio call with ${peer?.displayName ?? 'this member'}`}
                       >
                         <Phone className="h-4 w-4" aria-hidden="true" />
                       </button>
                       <button
                         type="button"
                         onClick={() =>
-                          activeConversation.otherUser &&
-                          void startCall(activeConversation.otherUser.username, 'VIDEO')
+                          peer && void startCall(peer.username, 'VIDEO')
                         }
-                        disabled={inCall || callStarting || !activeConversation.otherUser}
+                        disabled={inCall || callStarting || !peer}
                         className="rounded-lg border p-2 transition-colors hover:border-[rgb(var(--ss-ring))] disabled:cursor-not-allowed disabled:opacity-50"
-                        aria-label={`Start a video call with ${activeConversation.otherUser?.displayName ?? 'this member'}`}
+                        aria-label={`Start a video call with ${peer?.displayName ?? 'this member'}`}
                       >
                         <Video className="h-4 w-4" aria-hidden="true" />
                       </button>
@@ -359,7 +454,7 @@ export default function MessagesPage() {
                           className="absolute right-0 z-30 mt-1.5 w-52 overflow-hidden rounded-xl border bg-[rgb(var(--ss-bg-alt))] p-1 shadow-xl"
                         >
                           <Link
-                            to={`/members/${activeConversation.otherUser?.username}`}
+                            to={`/members/${peer?.username}`}
                             role="menuitem"
                             onClick={() => setActionsOpen(false)}
                             className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-[rgb(var(--ss-border)/0.55)]"
@@ -372,19 +467,37 @@ export default function MessagesPage() {
                             role="menuitem"
                             onClick={() => {
                               setActionsOpen(false);
-                              toast.info('Muted', 'You will stop receiving notifications for this conversation.');
+                              if (!conversationId) return;
+                              const nextMuted = !(activeConversation?.muted ?? false);
+                              muteConversation.mutate(
+                                { conversationId, muted: nextMuted },
+                                {
+                                  onSuccess: () =>
+                                    toast.success(
+                                      nextMuted ? 'Muted' : 'Unmuted',
+                                      nextMuted
+                                        ? 'You will stop receiving notifications for this conversation.'
+                                        : 'You will be notified about new messages again.',
+                                    ),
+                                  onError: (err) =>
+                                    toast.error('Could not update', err instanceof ApiError ? err.message : undefined),
+                                },
+                              );
                             }}
                             className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-[rgb(var(--ss-border)/0.55)]"
                           >
-                            <BellOff className="h-4 w-4" aria-hidden="true" />
-                            Mute notifications
+                            {activeConversation?.muted ? (
+                              <BellRing className="h-4 w-4" aria-hidden="true" />
+                            ) : (
+                              <BellOff className="h-4 w-4" aria-hidden="true" />
+                            )}
+                            {activeConversation?.muted ? 'Unmute notifications' : 'Mute notifications'}
                           </button>
                           <button
                             type="button"
                             role="menuitem"
                             onClick={() => {
                               setActionsOpen(false);
-                              const peer = activeConversation?.otherUser;
                               if (peer) setReportTarget({ type: 'USER', id: peer.id });
                               setReportOpen(true);
                             }}
@@ -398,7 +511,7 @@ export default function MessagesPage() {
                             type="button"
                             role="menuitem"
                             onClick={() => {
-                              const username = activeConversation.otherUser?.username;
+                              const username = peer?.username;
                               setActionsOpen(false);
                               if (!username) return;
                               blockUser.mutate(
@@ -425,6 +538,18 @@ export default function MessagesPage() {
 
                 {/* Messages */}
                 <div className="flex-1 space-y-3 overflow-y-auto p-4">
+                  {thread.hasNextPage ? (
+                    <div className="pb-1 text-center">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        loading={thread.isFetchingNextPage}
+                        onClick={() => void thread.fetchNextPage()}
+                      >
+                        Load older messages
+                      </Button>
+                    </div>
+                  ) : null}
                   {messages.length === 0 ? (
                     <EmptyState
                       compact
@@ -464,17 +589,82 @@ export default function MessagesPage() {
                             <div className={cn('max-w-[75%]', isMine && 'text-right')}>
                               <div
                                 className={cn(
-                                  'inline-block whitespace-pre-line rounded-2xl px-3.5 py-2.5 text-sm',
+                                  'inline-block max-w-full whitespace-pre-line break-words rounded-2xl px-3.5 py-2.5 text-left text-sm',
                                   isMine
                                     ? 'rounded-br-sm bg-brand-600 text-white'
                                     : 'rounded-bl-sm border bg-[rgb(var(--ss-bg-alt))]',
                                 )}
                               >
-                                {message.body}
+                                {message.attachment ? (
+                                  <a
+                                    href={message.attachment.url}
+                                    target="_blank"
+                                    rel="noreferrer noopener"
+                                    className="block"
+                                  >
+                                    {message.attachment.type?.startsWith('image/') ? (
+                                      <img
+                                        src={message.attachment.url}
+                                        alt={message.attachment.name ?? 'Shared image'}
+                                        className="mb-1.5 max-h-64 w-full rounded-lg object-cover"
+                                        loading="lazy"
+                                      />
+                                    ) : null}
+                                    <span className="inline-flex items-center gap-1.5 underline underline-offset-2">
+                                      {message.attachment.name ?? 'Attachment'}
+                                    </span>
+                                  </a>
+                                ) : null}
+                                {message.body ? <span>{message.body}</span> : null}
+                                {message.removed ? (
+                                  <span className="italic opacity-80">This message was removed by a moderator.</span>
+                                ) : null}
+                                {message.deleted ? (
+                                  <span className="italic opacity-80">This message was deleted.</span>
+                                ) : null}
                               </div>
-                              <p className="mt-1 flex items-center gap-2 text-[11px] ss-subtle">
+                              <p className="mt-1 flex items-center justify-end gap-2 text-[11px] ss-subtle">
                                 <span>{relativeTime(message.createdAt)}</span>
-                                {!isMine && !message.removed ? (
+                                {isMine && !message.removed && !message.deleted ? (
+                                  message.readAt ? (
+                                    <span className="inline-flex items-center gap-1" title="Read">
+                                      <CheckCheck className="h-3 w-3 text-brand-600 dark:text-brand-300" aria-hidden />
+                                      <span className="sr-only">Read</span>
+                                    </span>
+                                  ) : message.deliveredAt ? (
+                                    <span className="inline-flex items-center gap-1" title="Delivered">
+                                      <CheckCheck className="h-3 w-3" aria-hidden />
+                                      <span className="sr-only">Delivered</span>
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1" title="Sent">
+                                      <Check className="h-3 w-3" aria-hidden />
+                                      <span className="sr-only">Sent</span>
+                                    </span>
+                                  )
+                                ) : null}
+                                {isMine && !message.deleted ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      deleteMessage.mutate(
+                                        { messageId: message.id, conversationId: conversationId! },
+                                        {
+                                          onError: (err) =>
+                                            toast.error(
+                                              'Could not delete',
+                                              err instanceof ApiError ? err.message : undefined,
+                                            ),
+                                        },
+                                      )
+                                    }
+                                    className="inline-flex items-center gap-1 hover:text-rose-600"
+                                    aria-label="Delete this message"
+                                  >
+                                    <Trash2 className="h-3 w-3" aria-hidden />
+                                  </button>
+                                ) : null}
+                                {!isMine && !message.removed && !message.deleted ? (
                                   <button
                                     type="button"
                                     onClick={() => {
@@ -507,6 +697,36 @@ export default function MessagesPage() {
                     }}
                     className="flex items-end gap-2"
                   >
+                    <input
+                      ref={fileRef}
+                      type="file"
+                      className="hidden"
+                      accept="image/*,application/pdf,.doc,.docx,.txt,.zip"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        event.target.value = '';
+                        if (!file || !conversationId) return;
+                        sendAttachment.mutate(
+                          { conversationId, file },
+                          {
+                            onError: (err) =>
+                              toast.error(
+                                'Could not send the file',
+                                err instanceof ApiError ? err.message : undefined,
+                              ),
+                          },
+                        );
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileRef.current?.click()}
+                      disabled={sendAttachment.isPending}
+                      className="rounded-lg border p-2.5 transition-colors hover:border-[rgb(var(--ss-ring))] disabled:cursor-not-allowed disabled:opacity-50"
+                      aria-label="Attach a file"
+                    >
+                      <ImagePlus className="h-4 w-4" aria-hidden="true" />
+                    </button>
                     <textarea
                       ref={inputRef}
                       className="ss-input max-h-32 min-h-[44px] flex-1 resize-y"
@@ -514,7 +734,10 @@ export default function MessagesPage() {
                       value={draft}
                       maxLength={4000}
                       aria-label="Message text"
-                      onChange={(event) => setDraft(event.target.value)}
+                      onChange={(event) => {
+                        setDraft(event.target.value);
+                        notifyTyping();
+                      }}
                       onKeyDown={(event) => {
                         if (event.key === 'Enter' && !event.shiftKey) {
                           event.preventDefault();
@@ -542,6 +765,87 @@ export default function MessagesPage() {
           </div>
         </div>
       </Card>
+
+      <Modal
+        open={findOpen}
+        onClose={() => {
+          setFindOpen(false);
+          setFindTerm('');
+        }}
+        title="Start a conversation"
+        description="Search for a member by username or name, then open a private chat."
+        size="md"
+      >
+        <div className="space-y-4">
+          <div className="relative">
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[rgb(var(--ss-text-subtle))]"
+              aria-hidden="true"
+            />
+            <input
+              type="search"
+              className="ss-input pl-10"
+              placeholder="Search by username or name…"
+              value={findTerm}
+              aria-label="Search members"
+              autoFocus
+              onChange={(event) => setFindTerm(event.target.value)}
+            />
+          </div>
+
+          {findDebounced.length < 2 ? (
+            <p className="text-sm ss-muted">Type at least two characters to search.</p>
+          ) : searchingUsers ? (
+            <LoadingState label="Searching" />
+          ) : (foundUsers ?? []).length === 0 ? (
+            <p className="text-sm ss-muted">Nobody matches that search. Check the spelling, or try a username.</p>
+          ) : (
+            <ul className="max-h-80 divide-y overflow-y-auto">
+              {(foundUsers ?? []).map((user: MessageableUser) => (
+                <li key={user.id} className="flex items-center gap-3 py-2.5">
+                  <Avatar name={user.displayName} src={user.avatarUrl} seed={user.username} size="sm" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{user.displayName}</p>
+                    <p className="truncate text-xs ss-subtle">
+                      @{user.username}
+                      {user.headline ? ` · ${user.headline}` : ''}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant={user.conversationId ? 'secondary' : 'primary'}
+                    loading={startConversation.isPending}
+                    onClick={() => {
+                      if (user.conversationId) {
+                        setFindOpen(false);
+                        navigate(`/messages/${user.conversationId}`);
+                        return;
+                      }
+                      startConversation.mutate(
+                        { username: user.username },
+                        {
+                          onSuccess: (res) => {
+                            setFindOpen(false);
+                            setFindTerm('');
+                            navigate(`/messages/${res.data.conversationId}`);
+                          },
+                          onError: (err) =>
+                            toast.error(
+                              'Could not start the conversation',
+                              err instanceof ApiError ? err.message : undefined,
+                            ),
+                        },
+                      );
+                    }}
+                  >
+                    {user.conversationId ? 'Open chat' : 'Message'}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </Modal>
 
       <Modal
         open={reportOpen}

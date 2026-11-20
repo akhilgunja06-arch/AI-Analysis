@@ -48,7 +48,6 @@ settingsRouter.get(
           username: true,
           role: true,
           status: true,
-          emailVerifiedAt: true,
           createdAt: true,
           profile: true,
         },
@@ -75,7 +74,6 @@ settingsRouter.get(
         username: user.username,
         role: user.role,
         status: user.status,
-        emailVerified: Boolean(user.emailVerifiedAt),
         memberSince: user.createdAt,
       },
       profile: user.profile,
@@ -113,7 +111,8 @@ const accountSchema = z.object({
 
 /**
  * PATCH /api/settings/account — change email or username.
- * Changing the email requires re-verification.
+ * There is no verification step, so a new address is usable immediately; the
+ * audit trail still records that the address changed.
  */
 settingsRouter.patch(
   '/account',
@@ -130,8 +129,6 @@ settingsRouter.patch(
       }
       if (existing?.id !== req.user!.id) {
         data.email = body.email;
-        data.emailVerifiedAt = null;
-        data.status = 'PENDING_VERIFICATION';
         emailChanged = true;
       }
     }
@@ -149,7 +146,7 @@ settingsRouter.patch(
     const updated = await prisma.user.update({
       where: { id: req.user!.id },
       data,
-      select: { id: true, email: true, username: true, status: true, emailVerifiedAt: true },
+      select: { id: true, email: true, username: true, status: true },
     });
 
     await recordAudit({
@@ -157,11 +154,11 @@ settingsRouter.patch(
       action: emailChanged ? 'account.email_changed' : 'account.username_changed',
       entityType: 'User',
       entityId: req.user!.id,
-      summary: emailChanged ? 'Email address changed; verification required' : 'Username changed',
+      summary: emailChanged ? 'Email address changed' : 'Username changed',
       ipAddress: req.ip,
     });
 
-    return ok(res, { ...updated, emailVerified: Boolean(updated.emailVerifiedAt), requiresVerification: emailChanged });
+    return ok(res, { ...updated });
   }),
 );
 
@@ -253,7 +250,6 @@ settingsRouter.get(
           status: true,
           createdAt: true,
           lastLoginAt: true,
-          emailVerifiedAt: true,
           profile: true,
           preference: true,
         },

@@ -133,9 +133,8 @@ message. It does not fabricate a reply.
 
 ## Authorization model
 
-Every media route is behind `requireAuth`, and uploads additionally behind
-`requireVerified`. Ownership is checked on the server for every read, update and
-delete; a client-supplied id is never trusted. Accessing another member's asset
+Every media route is behind `requireAuth`. Ownership is checked on the server
+for every read, update and delete; a client-supplied id is never trusted. Accessing another member's asset
 returns the same `404` as a missing one, so the API does not reveal whether an id
 exists. A member can only read a conversation they participate in, and only their
 own notifications, favourites and AI history.

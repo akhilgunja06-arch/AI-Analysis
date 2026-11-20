@@ -1,7 +1,7 @@
 /** Shared API types. These mirror the shapes the backend actually returns. */
 
 export type Role = 'MEMBER' | 'MODERATOR' | 'ADMIN';
-export type AccountStatus = 'PENDING_VERIFICATION' | 'ACTIVE' | 'SUSPENDED' | 'DEACTIVATED';
+export type AccountStatus = 'ACTIVE' | 'SUSPENDED' | 'DEACTIVATED';
 export type SkillDirection = 'TEACH' | 'LEARN';
 export type SkillLevel = 'BEGINNER' | 'INTERMEDIATE' | 'ADVANCED' | 'EXPERT';
 export type SessionFormat = 'ONLINE' | 'IN_PERSON' | 'EITHER';
@@ -22,7 +22,6 @@ export type SessionUser = {
   username: string;
   role: Role;
   status: AccountStatus;
-  emailVerified: boolean;
 };
 
 export type Preferences = {
@@ -91,7 +90,7 @@ export type PublicMember = {
   githubUrl: string | null;
   linkedinUrl: string | null;
   preferredFormat: SessionFormat;
-  emailVerified: boolean;
+  lastSeenAt: string | null;
   memberSince: string;
   teaches: SkillRef[];
   wants: SkillRef[];
@@ -424,11 +423,21 @@ export type CalendarSession = {
   };
 };
 
+/** The other side of a 1:1 conversation, with their live presence. */
+export type ChatPeer = {
+  id: string;
+  username: string;
+  displayName: string;
+  avatarUrl: string | null;
+  online: boolean;
+  lastSeenAt: string | null;
+};
+
 export type Conversation = {
   id: string;
   isGroup: boolean;
   title: string;
-  otherUser: { id: string; username: string; displayName: string; avatarUrl: string | null } | null;
+  otherUser: ChatPeer | null;
   lastMessage: { id: string; preview: string; createdAt: string; fromMe: boolean } | null;
   lastMessageAt: string;
   unreadCount: number;
@@ -440,10 +449,26 @@ export type ChatMessage = {
   id: string;
   body: string | null;
   removed: boolean;
+  deleted: boolean;
   fromMe: boolean;
+  senderId: string;
   sender: { username: string; displayName: string; avatarUrl: string | null };
   attachment: { url: string; name: string | null; type: string | null } | null;
   createdAt: string;
+  deliveredAt: string | null;
+  readAt: string | null;
+};
+
+/** A person the caller can start a conversation with. */
+export type MessageableUser = {
+  id: string;
+  username: string;
+  displayName: string;
+  avatarUrl: string | null;
+  headline: string | null;
+  online: boolean;
+  lastSeenAt: string | null;
+  conversationId: string | null;
 };
 
 export type NotificationItem = {
@@ -625,7 +650,7 @@ export type LearningPayload = {
 };
 
 export type AdminOverview = {
-  users: { total: number; active: number; pendingVerification: number; suspended: number; newLast30Days: number };
+  users: { total: number; active: number; suspended: number; newLast30Days: number };
   exchanges: { total: number; byStatus: Record<string, number> };
   activity: { sessionsScheduled: number; messages: number; communityPosts: number };
   moderation: { openReports: number };
@@ -659,7 +684,6 @@ export type AdminUser = {
   avatarUrl: string | null;
   role: Role;
   status: AccountStatus;
-  emailVerified: boolean;
   createdAt: string;
   lastLoginAt: string | null;
   counts: { exchanges: number; posts: number; reportsAgainst: number };
@@ -684,7 +708,6 @@ export type SettingsPayload = {
     username: string;
     role: Role;
     status: AccountStatus;
-    emailVerified: boolean;
     memberSince: string;
   };
   profile: Profile | null;
@@ -820,13 +843,4 @@ export type ModerationStanding = {
     createdAt: string;
   }[];
   appealPath: string;
-};
-
-// ------------------------------------------------------ email OTP sign-up
-
-export type RegistrationVerification = {
-  required: boolean;
-  emailSent: boolean;
-  expiresInSeconds: number;
-  resendAfterSeconds: number;
 };

@@ -6,7 +6,7 @@ import { prisma } from '../lib/prisma';
 import { asyncHandler, validateBody, validateParams, validateQuery } from '../lib/http';
 import { created, noContent, ok, paginated } from '../lib/respond';
 import { ApiError } from '../lib/errors';
-import { requireAuth, requireVerified } from '../middleware/auth';
+import { requireAuth } from '../middleware/auth';
 import { uploadLimiter } from '../middleware/errors';
 import { uuidSchema } from '../lib/validation';
 import { env } from '../config/env';
@@ -104,7 +104,7 @@ const imageUploadFields = {
  */
 mediaRouter.post(
   '/images',
-  requireVerified,
+  requireAuth,
   uploadLimiter,
   uploadImage.single('file'),
   asyncHandler(async (req, res) => {
@@ -153,7 +153,7 @@ mediaRouter.post(
  */
 mediaRouter.post(
   '/videos',
-  requireVerified,
+  requireAuth,
   uploadLimiter,
   uploadVideo.single('file'),
   asyncHandler(async (req, res) => {
@@ -216,7 +216,7 @@ const startSessionSchema = z.object({
  */
 mediaRouter.post(
   '/uploads',
-  requireVerified,
+  requireAuth,
   validateBody(startSessionSchema),
   asyncHandler(async (req, res) => {
     const body = req.body as z.infer<typeof startSessionSchema>;
@@ -277,7 +277,7 @@ mediaRouter.post(
  */
 mediaRouter.put(
   '/uploads/:id/chunk',
-  requireVerified,
+  requireAuth,
   validateParams(z.object({ id: uuidSchema })),
   uploadVideoChunk.single('chunk'),
   asyncHandler(async (req, res) => {
@@ -332,7 +332,7 @@ mediaRouter.put(
  */
 mediaRouter.post(
   '/uploads/:id/complete',
-  requireVerified,
+  requireAuth,
   validateParams(z.object({ id: uuidSchema })),
   asyncHandler(async (req, res) => {
     const { id } = res.locals.params as { id: string };
@@ -387,7 +387,7 @@ mediaRouter.post(
 /** DELETE /api/media/uploads/:id — abandons a resumable upload and frees space. */
 mediaRouter.delete(
   '/uploads/:id',
-  requireVerified,
+  requireAuth,
   validateParams(z.object({ id: uuidSchema })),
   asyncHandler(async (req, res) => {
     const { id } = res.locals.params as { id: string };

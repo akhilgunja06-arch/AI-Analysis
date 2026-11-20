@@ -161,7 +161,7 @@ export async function enforceModeration(
       if (!existing) {
         const r = await applyRestriction(
           userId,
-          'Repeated off-topic messages. Messaging is paused for 7 days.',
+          'Repeated abusive messages. Messaging is paused for 7 days.',
           2,
           WINDOW_LONG_MS,
         );
@@ -172,7 +172,7 @@ export async function enforceModeration(
       if (!existing) {
         const r = await applyRestriction(
           userId,
-          'Several off-topic messages in one day. Messaging is paused for 24 hours.',
+          'Several abusive messages in one day. Messaging is paused for 24 hours.',
           1,
           WINDOW_SHORT_MS,
         );

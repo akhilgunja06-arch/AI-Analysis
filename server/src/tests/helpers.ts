@@ -58,19 +58,19 @@ export async function api<T = any>(
 }
 
 /**
- * Registers a member through the API, verifies their email with the token the
- * API returns in non-production, and returns a usable access token.
+ * Registers a member through the API and returns a usable access token.
+ * Registration is complete on success — there is no verification step.
  */
 export async function createAccount(
   baseUrl: string,
-  overrides: { displayName?: string; role?: 'MEMBER' | 'MODERATOR' | 'ADMIN'; verify?: boolean } = {},
+  overrides: { displayName?: string; role?: 'MEMBER' | 'MODERATOR' | 'ADMIN' } = {},
 ): Promise<TestAccount> {
   const suffix = uniqueSuffix();
   const email = `test-${suffix}@example.com`;
   const username = `test${suffix}`.slice(0, 30).toLowerCase();
 
   const registered = await api<{
-    data: { user: { id: string }; accessToken: string; devVerificationToken?: string };
+    data: { user: { id: string }; accessToken: string };
   }>(baseUrl, 'POST', '/api/auth/register', {
     body: {
       email,
@@ -85,16 +85,7 @@ export async function createAccount(
     throw new Error(`Registration failed: ${registered.status} ${JSON.stringify(registered.body)}`);
   }
 
-  const { user, accessToken, devVerificationToken } = registered.body.data;
-
-  if (overrides.verify !== false && devVerificationToken) {
-    const verified = await api(baseUrl, 'POST', '/api/auth/verify-email', {
-      body: { token: devVerificationToken },
-    });
-    if (verified.status !== 200) {
-      throw new Error(`Verification failed: ${JSON.stringify(verified.body)}`);
-    }
-  }
+  const { user, accessToken } = registered.body.data;
 
   if (overrides.role && overrides.role !== 'MEMBER') {
     await prisma.user.update({ where: { id: user.id }, data: { role: overrides.role } });
@@ -102,7 +93,7 @@ export async function createAccount(
 
   // Re-login so the token carries the updated role, then read it from the DB.
   const login = await api<{ data: { accessToken: string } }>(baseUrl, 'POST', '/api/auth/login', {
-    body: { email, password: TEST_PASSWORD },
+    body: { identifier: email, password: TEST_PASSWORD },
   });
   if (login.status !== 200) throw new Error(`Login failed: ${JSON.stringify(login.body)}`);
 
@@ -154,6 +145,7 @@ export async function resetDatabase() {
       "AuditLog", "SupportTicket", "UserBlock", "Report",
       "CommunityCommentVote", "CommunityPostVote", "CommunityComment", "CommunityPost",
       "Follow", "Review", "Notification",
+      "ModerationEvent", "MessagingRestriction", "CallSession",
       "Message", "ConversationParticipant", "Conversation",
       "ExchangeEvent", "ExchangeNote", "Milestone", "Session", "ExchangeParticipant",
       "ExchangeRequest", "Exchange",

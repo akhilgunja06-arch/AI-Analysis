@@ -4,7 +4,11 @@ import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
 
 /**
- * Study-only moderation for peer chat and the study assistant.
+ * Safety moderation for peer chat and the study assistant.
+ *
+ * People use SkillSpring to talk about anything — study, code, careers, films,
+ * their weekend. The policy therefore has no topic rule: an ordinary
+ * conversation is always allowed. Only genuinely harmful content is acted on.
  *
  * This is a deterministic, explainable policy, not a classifier. It is
  * deliberately conservative about *blocking*: a false positive on "breast" in a
@@ -12,13 +16,14 @@ import { logger } from '../lib/logger';
  * missed borderline message, which a human can still report.
  *
  * Tiers
- *  - BLOCK: unambiguous sexual solicitation, credible threats, spam links.
- *  - WARN:  unrelated or mildly inappropriate content. Allowed through, but the
- *           sender is told, and the event is recorded.
- *  - ALLOW: everything else.
+ *  - BLOCK: unambiguous sexual solicitation, credible threats, self-harm risk,
+ *           and spam/scam offers.
+ *  - WARN:  mildly abusive language. Allowed through, but the sender is told
+ *           and the event is recorded.
+ *  - ALLOW: everything else, including off-topic chat.
  *
  * Repeated WARNs escalate into a temporary messaging restriction; repeated
- * BLOCKs into a suspension, both handled in enforce.ts.
+ * BLOCKs into a suspension, both handled in enforcement.service.ts.
  */
 
 export type ModerationDecision = {
@@ -60,7 +65,12 @@ const SEXUAL_PATTERNS: { re: RegExp; severity: number }[] = [
 ];
 
 const THREAT_PATTERNS: { re: RegExp; severity: number }[] = [
-  { re: /\bi(?:'ll|\s+will|\s+am\s+going\s+to|\s+gonna)\s+(?:kill|hurt|stab|shoot|beat)\s+you\b/i, severity: 3 },
+  {
+    // Allows a short clause between the intent and the act, as in
+    // "I will find you and hurt you".
+    re: /\bi(?:'ll|ll|\s+will|\s+am\s+going\s+to|\s+gonna)\s+(?:\w+\s+){0,5}?(?:kill|hurt|stab|shoot|beat)\s+you\b/i,
+    severity: 3,
+  },
   { re: /\b(?:kill|murder|rape)\s+you\b/i, severity: 3 },
   { re: /\bi\s+know\s+where\s+you\s+live\b/i, severity: 3 },
   { re: /\b(?:dox|doxx?ing)\s+you\b/i, severity: 3 },
@@ -88,23 +98,6 @@ const SELF_HARM_PATTERNS: { re: RegExp; severity: number }[] = [
   { re: /\b(?:self[\s-]?harm|cutting\s+myself)\b/i, severity: 2 },
 ];
 
-/**
- * Study-relevance heuristic. Only used to WARN, and only for messages long
- * enough to judge — "ok", "thanks" and "see you at 6" are normal chat.
- */
-const STUDY_SIGNALS = [
-  'learn', 'teach', 'study', 'lesson', 'session', 'practice', 'homework',
-  'exam', 'quiz', 'question', 'answer', 'explain', 'help', 'understand',
-  'chapter', 'notes', 'revision', 'project', 'code', 'program', 'math',
-  'physics', 'chemistry', 'biology', 'english', 'grammar', 'history',
-  'geography', 'economics', 'engineering', 'computer', 'science', 'algorithm',
-  'formula', 'theorem', 'equation', 'syntax', 'debug', 'error', 'function',
-  'schedule', 'tomorrow', 'today', 'available', 'meeting', 'time', 'thanks',
-  'thank you', 'sorry', 'please', 'hello', 'hi ', 'hey', 'good morning',
-  'good evening', 'ok', 'okay', 'yes', 'no', 'sure', 'sounds good', 'great',
-  'see you', 'later', 'bye', 'welcome', 'congrats', 'nice', 'well done',
-];
-
 function normalise(text: string): string {
   return text
     .normalize('NFKC')
@@ -118,18 +111,12 @@ function isAcademicContext(lower: string): boolean {
   return ACADEMIC_ANCHORS.some((anchor) => lower.includes(anchor));
 }
 
-function looksStudyRelated(lower: string): boolean {
-  return STUDY_SIGNALS.some((signal) => lower.includes(signal));
-}
-
 /** Runs the policy. Pure: no database access, no side effects. */
 export function classify(text: string): ModerationDecision {
   const normalised = normalise(text);
   const lower = normalised.toLowerCase();
 
-  if (!lower) {
-    return { verdict: 'WARN', category: 'OFF_TOPIC', severity: 1, reason: 'The message was empty.' };
-  }
+  if (!lower) return ALLOW;
 
   // Safety first: credible threats and self-harm are never "academic".
   for (const rule of THREAT_PATTERNS) {
@@ -162,7 +149,7 @@ export function classify(text: string): ModerationDecision {
         verdict: 'BLOCK',
         category: 'SEXUAL',
         severity: rule.severity,
-        reason: 'SkillSpring chat is for study discussions only. Sexual messages are not allowed.',
+        reason: 'Sexual messages are not allowed in SkillSpring chat.',
       };
     }
   }
@@ -173,7 +160,7 @@ export function classify(text: string): ModerationDecision {
         verdict: 'BLOCK',
         category: 'SPAM',
         severity: rule.severity,
-        reason: 'Advertising, recruitment and money-making offers are not allowed in study chat.',
+        reason: 'Advertising, recruitment and money-making offers are not allowed in chat.',
       };
     }
   }
@@ -187,17 +174,6 @@ export function classify(text: string): ModerationDecision {
         reason: 'Please keep messages respectful. Abusive language is not allowed here.',
       };
     }
-  }
-
-  // Off-topic: only judged on messages long enough to have a topic.
-  if (normalised.length >= 40 && !looksStudyRelated(lower)) {
-    return {
-      verdict: 'WARN',
-      category: 'OFF_TOPIC',
-      severity: 1,
-      reason:
-        'This conversation is for study and skill exchange. Please keep messages related to learning.',
-    };
   }
 
   return ALLOW;

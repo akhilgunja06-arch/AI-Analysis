@@ -26,7 +26,6 @@ adminRouter.get(
     const [
       users,
       activeUsers,
-      pendingVerification,
       suspended,
       newUsers30d,
       exchanges,
@@ -42,7 +41,6 @@ adminRouter.get(
     ] = await Promise.all([
       prisma.user.count(),
       prisma.user.count({ where: { status: 'ACTIVE' } }),
-      prisma.user.count({ where: { status: 'PENDING_VERIFICATION' } }),
       prisma.user.count({ where: { status: 'SUSPENDED' } }),
       prisma.user.count({ where: { createdAt: { gte: thirtyDaysAgo } } }),
       prisma.exchange.count(),
@@ -78,7 +76,6 @@ adminRouter.get(
       users: {
         total: users,
         active: activeUsers,
-        pendingVerification,
         suspended,
         newLast30Days: newUsers30d,
       },
@@ -111,7 +108,7 @@ adminRouter.get(
     z.object({
       search: z.string().trim().max(80).optional(),
       role: z.enum(['MEMBER', 'MODERATOR', 'ADMIN']).optional(),
-      status: z.enum(['PENDING_VERIFICATION', 'ACTIVE', 'SUSPENDED', 'DEACTIVATED']).optional(),
+      status: z.enum(['ACTIVE', 'SUSPENDED', 'DEACTIVATED']).optional(),
     }),
   ),
   asyncHandler(async (req, res) => {
@@ -145,7 +142,6 @@ adminRouter.get(
           username: true,
           role: true,
           status: true,
-          emailVerifiedAt: true,
           createdAt: true,
           lastLoginAt: true,
           profile: { select: { displayName: true, avatarUrl: true } },
@@ -164,7 +160,6 @@ adminRouter.get(
         avatarUrl: u.profile?.avatarUrl ?? null,
         role: u.role,
         status: u.status,
-        emailVerified: Boolean(u.emailVerifiedAt),
         createdAt: u.createdAt,
         lastLoginAt: u.lastLoginAt,
         counts: {
@@ -184,7 +179,6 @@ const userAdminSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('suspend'), reason: z.string().trim().min(3, 'Give a reason.').max(500) }),
   z.object({ action: z.literal('reinstate') }),
   z.object({ action: z.literal('promote'), role: z.enum(['MEMBER', 'MODERATOR', 'ADMIN']) }),
-  z.object({ action: z.literal('verify-email') }),
 ]);
 
 adminRouter.patch(
@@ -221,21 +215,18 @@ adminRouter.patch(
     } else if (body.action === 'reinstate') {
       data = { status: 'ACTIVE', deactivatedAt: null };
       summary = `User @${user.username} reinstated`;
-    } else if (body.action === 'promote') {
+    } else {
       if (user.id === req.user!.id) {
         throw ApiError.badRequest('You cannot change your own role.');
       }
       data = { role: body.role };
       summary = `User @${user.username} role set to ${body.role}`;
-    } else {
-      data = { emailVerifiedAt: new Date(), status: 'ACTIVE' };
-      summary = `Email for @${user.username} marked verified`;
     }
 
     const updated = await prisma.user.update({
       where: { id },
       data,
-      select: { id: true, username: true, role: true, status: true, emailVerifiedAt: true },
+      select: { id: true, username: true, role: true, status: true },
     });
 
     await recordAudit({
@@ -268,7 +259,7 @@ adminRouter.patch(
       emitToUser,
     );
 
-    return ok(res, { ...updated, emailVerified: Boolean(updated.emailVerifiedAt) });
+    return ok(res, { ...updated });
   }),
 );
 

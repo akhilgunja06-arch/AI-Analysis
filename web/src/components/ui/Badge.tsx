@@ -154,23 +154,3 @@ export function SkillChip({
   );
 }
 
-/** Small verified marker, only shown when the address really is verified. */
-export function VerifiedBadge({ verified }: { verified: boolean }) {
-  if (!verified) return null;
-  return (
-    <span
-      className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400"
-      title="Email address verified"
-    >
-      <svg viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5" aria-hidden="true">
-        <path
-          fillRule="evenodd"
-          d="M10 1.5l2.09 1.53 2.58-.2.9 2.44 2.13 1.47-.75 2.48.75 2.48-2.13 1.47-.9 2.44-2.58-.2L10 18.5l-2.09-1.53-2.58.2-.9-2.44L2.3 13.26l.75-2.48-.75-2.48 2.13-1.47.9-2.44 2.58.2L10 1.5zm3.03 6.02a.75.75 0 10-1.06-1.06L9 9.44 7.53 7.97a.75.75 0 10-1.06 1.06l2 2a.75.75 0 001.06 0l3.5-3.5z"
-          clipRule="evenodd"
-        />
-      </svg>
-      Verified
-      <span className="sr-only">email address verified</span>
-    </span>
-  );
-}

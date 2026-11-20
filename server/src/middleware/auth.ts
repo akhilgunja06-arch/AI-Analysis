@@ -125,21 +125,6 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   });
 }
 
-/** Requires a fully verified, active account for state-changing operations. */
-export function requireVerified(req: Request, res: Response, next: NextFunction) {
-  return requireAuth(req, res, (err?: unknown) => {
-    if (err) return next(err);
-    if (req.user?.status === 'PENDING_VERIFICATION') {
-      return next(
-        ApiError.forbidden('Verify your email address before using this feature.', {
-          reason: 'EMAIL_NOT_VERIFIED',
-        }),
-      );
-    }
-    return next();
-  });
-}
-
 export function requireRole(...roles: Role[]) {
   return (req: Request, res: Response, next: NextFunction) => {
     return requireAuth(req, res, (err?: unknown) => {

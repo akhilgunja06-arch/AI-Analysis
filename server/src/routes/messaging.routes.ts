@@ -4,18 +4,20 @@ import { prisma } from '../lib/prisma';
 import { asyncHandler, validateBody, validateParams, validateQuery } from '../lib/http';
 import { created, noContent, ok, paginated, parsePagination } from '../lib/respond';
 import { ApiError } from '../lib/errors';
-import { requireAuth, requireRestrictedAuth, requireVerified } from '../middleware/auth';
+import { requireAuth, requireRestrictedAuth } from '../middleware/auth';
+import { messageLimiter } from '../middleware/errors';
 import { uuidSchema } from '../lib/validation';
+import { REAL_BLOCK, blockBetween, blockedPartnerIds } from '../lib/blockFilters';
 import { createNotification } from '../services/notification.service';
-import { emitToConversation, emitToUser } from '../realtime';
+import { emitToConversation, emitToUser, onlineUserIds } from '../realtime';
 import { mediaUrlFor, storeFile, uploadAttachment } from '../services/storage.service';
 import { reviewText } from '../services/moderation.service';
 import { activeRestriction, enforceModeration } from '../services/enforcement.service';
 
 export const messagingRouter = Router();
 
-// The moderation standing route is reachable while suspended: a member needs to
-// read why they were restricted in order to appeal.
+// The moderation standing route stays reachable while suspended: a member has
+// to read why they were restricted in order to appeal.
 const restrictedAuthPaths = new Set(['/moderation']);
 messagingRouter.use((req, res, next) => {
   if (restrictedAuthPaths.has(req.path)) return requireRestrictedAuth(req, res, next);
@@ -23,8 +25,8 @@ messagingRouter.use((req, res, next) => {
 });
 
 /**
- * Every read and write goes through this check. A member can only ever touch a
- * conversation they are listed as a participant of — the client-supplied id is
+ * Every read and write goes through this check. A member can only touch a
+ * conversation they are listed as a participant of — a client-supplied id is
  * never trusted on its own.
  */
 async function assertConversationMember(conversationId: string, userId: string) {
@@ -33,7 +35,7 @@ async function assertConversationMember(conversationId: string, userId: string) 
     select: { id: true, muted: true, blocked: true, conversation: { select: { id: true, isGroup: true } } },
   });
   if (!participant) {
-    // Same response whether the conversation is missing or simply not theirs.
+    // Same answer whether the conversation is missing or simply not theirs.
     throw ApiError.notFound('That conversation could not be found.');
   }
   return participant;
@@ -44,10 +46,45 @@ function directKey(a: string, b: string): string {
   return [a, b].sort().join(':');
 }
 
+const senderSelect = {
+  username: true,
+  profile: { select: { displayName: true, avatarUrl: true } },
+} as const;
+
+function shapeSender(sender: {
+  username: string;
+  profile: { displayName: string; avatarUrl: string | null } | null;
+}) {
+  return {
+    username: sender.username,
+    displayName: sender.profile?.displayName ?? sender.username,
+    avatarUrl: sender.profile?.avatarUrl ?? null,
+  };
+}
+
+function shapePeer(peer: {
+  id: string;
+  username: string;
+  lastSeenAt: Date | null;
+  profile: { displayName: string; avatarUrl: string | null } | null;
+}) {
+  return {
+    id: peer.id,
+    username: peer.username,
+    displayName: peer.profile?.displayName ?? peer.username,
+    avatarUrl: peer.profile?.avatarUrl ?? null,
+    online: onlineUserIds().has(peer.id),
+    lastSeenAt: peer.lastSeenAt,
+  };
+}
+
 /**
- * Runs the study-only policy and applies any consequence. Returns the WARN
- * notice to attach to the response, or null when the message is clean.
- * A BLOCK is thrown as a 422 with a reason the sender can act on.
+ * Runs the safety policy and applies any consequence. Returns the WARN notice to
+ * attach to the response, or null when the message is clean. A BLOCK is thrown
+ * as a 422 carrying a reason the sender can act on.
+ *
+ * Ordinary conversation — study, work, films, small talk — always passes. Only
+ * threats, sexual solicitation, self-harm risk, spam and abuse are stopped.
  */
 async function moderateMessage(userId: string, body: string): Promise<string | null> {
   const decision = await reviewText({ userId, text: body, surface: 'MESSAGE' });
@@ -67,6 +104,107 @@ async function moderateMessage(userId: string, body: string): Promise<string | n
   return null;
 }
 
+/** Refuses a write while the caller is under an active messaging restriction. */
+async function assertNotRestricted(userId: string) {
+  const restriction = await activeRestriction(userId);
+  if (restriction) {
+    throw new ApiError(
+      403,
+      'MESSAGING_RESTRICTED',
+      `Messaging is paused on your account: ${restriction.reason}`,
+      { expiresAt: restriction.expiresAt?.toISOString() ?? null },
+    );
+  }
+}
+
+/**
+ * Refuses the write when either side has blocked the other. The participant
+ * `blocked` flag covers a conversation-level mute; the `UserBlock` table covers
+ * a member-level block, and both must stop delivery.
+ */
+async function assertNoBlock(senderId: string, recipientIds: string[]) {
+  for (const recipientId of recipientIds) {
+    const block = await prisma.userBlock.findFirst({
+      where: blockBetween(senderId, recipientId),
+      select: { id: true },
+    });
+    if (block) throw ApiError.forbidden('Messaging is not available with that member.');
+  }
+}
+
+/**
+ * Members the caller may message. A block in either direction, or a closed
+ * inbox, is excluded so search never offers a conversation that would be
+ * refused on open.
+ */
+async function messageableUserWhere(callerId: string) {
+  const excluded = await blockedPartnerIds(prisma, callerId);
+  excluded.add(callerId);
+  return { id: { notIn: [...excluded] }, status: 'ACTIVE' as const };
+}
+
+// ------------------------------------------------------------- user search
+
+/**
+ * GET /api/messages/users?search=… — people the caller can start a chat with.
+ * Matching is by username or display name; blocked relationships are excluded.
+ */
+messagingRouter.get(
+  '/users',
+  validateQuery(z.object({ search: z.string().trim().max(60).optional() })),
+  asyncHandler(async (req, res) => {
+    const { search } = res.locals.query as { search?: string };
+    const where = await messageableUserWhere(req.user!.id);
+    const term = search?.trim();
+
+    const users = await prisma.user.findMany({
+      where: {
+        ...where,
+        ...(term
+          ? {
+              OR: [
+                { username: { contains: term, mode: 'insensitive' as const } },
+                { profile: { displayName: { contains: term, mode: 'insensitive' as const } } },
+              ],
+            }
+          : {}),
+      },
+      orderBy: { username: 'asc' },
+      take: 20,
+      select: {
+        id: true,
+        username: true,
+        lastSeenAt: true,
+        profile: { select: { displayName: true, avatarUrl: true, headline: true } },
+      },
+    });
+
+    // Which of these already have a direct conversation with the caller? One
+    // query instead of a lookup per row.
+    const mine = await prisma.conversationParticipant.findMany({
+      where: { userId: req.user!.id, conversation: { isGroup: false } },
+      select: { conversationId: true, conversation: { select: { directKey: true } } },
+    });
+    const byDirectKey = new Map(mine.map((m) => [m.conversation.directKey, m.conversationId]));
+
+    return ok(
+      res,
+      users.map((user) => ({
+        id: user.id,
+        username: user.username,
+        displayName: user.profile?.displayName ?? user.username,
+        avatarUrl: user.profile?.avatarUrl ?? null,
+        headline: user.profile?.headline ?? null,
+        online: onlineUserIds().has(user.id),
+        lastSeenAt: user.lastSeenAt,
+        conversationId: byDirectKey.get(directKey(req.user!.id, user.id)) ?? null,
+      })),
+    );
+  }),
+);
+
+// ---------------------------------------------------------- conversations
+
 const startConversationSchema = z.object({
   username: z.string().trim().min(3).max(30),
   message: z.string().trim().max(4000).optional(),
@@ -75,7 +213,6 @@ const startConversationSchema = z.object({
 /** POST /api/messages/conversations — open (or reuse) a 1:1 conversation. */
 messagingRouter.post(
   '/conversations',
-  requireVerified,
   validateBody(startConversationSchema),
   asyncHandler(async (req, res) => {
     const { username, message } = req.body as z.infer<typeof startConversationSchema>;
@@ -88,17 +225,10 @@ messagingRouter.post(
     if (target.id === req.user!.id) throw ApiError.badRequest('You cannot message yourself.');
 
     const block = await prisma.userBlock.findFirst({
-      where: {
-        OR: [
-          { blockerId: req.user!.id, blockedId: target.id },
-          { blockerId: target.id, blockedId: req.user!.id },
-        ],
-      },
+      where: blockBetween(req.user!.id, target.id),
       select: { reason: true },
     });
-    if (block && block.reason !== 'DISMISSED_MATCH') {
-      throw ApiError.forbidden('Messaging is not available with that member.');
-    }
+    if (block) throw ApiError.forbidden('Messaging is not available with that member.');
 
     if (target.preference?.allowMessagesFrom === 'NOBODY') {
       throw ApiError.forbidden('That member is not accepting messages.');
@@ -126,26 +256,50 @@ messagingRouter.post(
         data: {
           directKey: key,
           isGroup: false,
-          participants: {
-            create: [{ userId: req.user!.id }, { userId: target.id }],
-          },
+          participants: { create: [{ userId: req.user!.id }, { userId: target.id }] },
         },
         select: { id: true },
       });
     });
 
     if (message) {
-      const body = await prisma.message.create({
-        data: { conversationId: conversation.id, senderId: req.user!.id, body: message },
-        select: { id: true, body: true, createdAt: true, senderId: true },
+      await assertNotRestricted(req.user!.id);
+      await moderateMessage(req.user!.id, message);
+
+      const now = new Date();
+      const row = await prisma.message.create({
+        data: {
+          conversationId: conversation.id,
+          senderId: req.user!.id,
+          body: message,
+          deliveredAt: onlineUserIds().has(target.id) ? now : null,
+        },
+        select: {
+          id: true,
+          body: true,
+          senderId: true,
+          createdAt: true,
+          deliveredAt: true,
+          sender: { select: senderSelect },
+        },
       });
-      await prisma.conversation.update({
-        where: { id: conversation.id },
-        data: { lastMessageAt: new Date() },
-      });
+      await prisma.conversation.update({ where: { id: conversation.id }, data: { lastMessageAt: now } });
+
       emitToConversation(conversation.id, 'message:new', {
         conversationId: conversation.id,
-        message: body,
+        message: {
+          id: row.id,
+          body: row.body,
+          removed: false,
+          deleted: false,
+          fromMe: false,
+          senderId: row.senderId,
+          sender: shapeSender(row.sender),
+          attachment: null,
+          createdAt: row.createdAt,
+          deliveredAt: row.deliveredAt,
+          readAt: null,
+        },
       });
       await createNotification(
         {
@@ -153,7 +307,7 @@ messagingRouter.post(
           type: 'MESSAGE',
           title: `New message from @${req.user!.username}`,
           body: message.length > 120 ? `${message.slice(0, 120)}…` : message,
-          link: `/messages?c=${conversation.id}`,
+          link: `/messages/${conversation.id}`,
           metadata: { conversationId: conversation.id },
         },
         emitToUser,
@@ -192,6 +346,7 @@ messagingRouter.get(
                   select: {
                     id: true,
                     username: true,
+                    lastSeenAt: true,
                     profile: { select: { displayName: true, avatarUrl: true } },
                   },
                 },
@@ -200,7 +355,14 @@ messagingRouter.get(
             messages: {
               orderBy: { createdAt: 'desc' },
               take: 1,
-              select: { id: true, body: true, createdAt: true, senderId: true, hiddenAt: true },
+              select: {
+                id: true,
+                body: true,
+                createdAt: true,
+                senderId: true,
+                hiddenAt: true,
+                deletedAt: true,
+              },
             },
           },
         },
@@ -224,6 +386,7 @@ messagingRouter.get(
             conversationId: p.conversation.id,
             senderId: { not: req.user!.id },
             hiddenAt: null,
+            deletedAt: null,
             ...(p.lastReadAt ? { createdAt: { gt: p.lastReadAt } } : {}),
           },
         }),
@@ -235,24 +398,24 @@ messagingRouter.get(
       filtered.map((p, index) => {
         const other = p.conversation.participants[0];
         const last = p.conversation.messages[0];
+        const preview = !last
+          ? null
+          : last.hiddenAt
+            ? 'This message was removed by a moderator.'
+            : last.deletedAt
+              ? 'This message was deleted.'
+              : last.body;
         return {
           id: p.conversation.id,
           isGroup: p.conversation.isGroup,
           title: p.conversation.isGroup
             ? p.conversation.title
-            : other?.user.profile?.displayName ?? other?.user.username ?? 'Conversation',
-          otherUser: other
-            ? {
-                id: other.user.id,
-                username: other.user.username,
-                displayName: other.user.profile?.displayName ?? other.user.username,
-                avatarUrl: other.user.profile?.avatarUrl ?? null,
-              }
-            : null,
+            : (other?.user.profile?.displayName ?? other?.user.username ?? 'Conversation'),
+          otherUser: other ? shapePeer(other.user) : null,
           lastMessage: last
             ? {
                 id: last.id,
-                preview: last.hiddenAt ? 'This message was removed by a moderator.' : last.body.slice(0, 160),
+                preview: (preview ?? '').slice(0, 160),
                 createdAt: last.createdAt,
                 fromMe: last.senderId === req.user!.id,
               }
@@ -267,7 +430,13 @@ messagingRouter.get(
   }),
 );
 
-/** GET /api/messages/conversations/:id — paginated message history. */
+/**
+ * GET /api/messages/conversations/:id — paginated message history.
+ *
+ * Pages count backwards from the newest message, so page 1 is the current
+ * conversation and page 2 is older history ("load older messages"). Opening the
+ * thread also marks it read and tells the other side.
+ */
 messagingRouter.get(
   '/conversations/:id',
   validateParams(z.object({ id: uuidSchema })),
@@ -277,7 +446,7 @@ messagingRouter.get(
 
     const { page, pageSize, skip, take } = parsePagination(req.query, { pageSize: 40, maxPageSize: 100 });
 
-    const [total, rows] = await Promise.all([
+    const [total, rows, conversation] = await Promise.all([
       prisma.message.count({ where: { conversationId: id } }),
       prisma.message.findMany({
         where: { conversationId: id },
@@ -292,38 +461,78 @@ messagingRouter.get(
           attachmentName: true,
           attachmentType: true,
           hiddenAt: true,
+          deletedAt: true,
+          deliveredAt: true,
+          readAt: true,
           createdAt: true,
-          sender: { select: { username: true, profile: { select: { displayName: true, avatarUrl: true } } } },
+          sender: { select: senderSelect },
+        },
+      }),
+      prisma.conversation.findUnique({
+        where: { id },
+        select: {
+          participants: {
+            where: { userId: { not: req.user!.id } },
+            select: {
+              user: {
+                select: {
+                  id: true,
+                  username: true,
+                  lastSeenAt: true,
+                  profile: { select: { displayName: true, avatarUrl: true } },
+                },
+              },
+            },
+          },
         },
       }),
     ]);
 
-    // Mark as read on fetch — the participant row is already verified above.
-    await prisma.conversationParticipant.update({
-      where: { conversationId_userId: { conversationId: id, userId: req.user!.id } },
-      data: { lastReadAt: new Date() },
+    // Opening a conversation reads it. Every message is stamped, not just the
+    // page, so the sender's ticks stay correct after they scroll back.
+    const readAt = new Date();
+    await prisma.$transaction([
+      prisma.conversationParticipant.update({
+        where: { conversationId_userId: { conversationId: id, userId: req.user!.id } },
+        data: { lastReadAt: readAt },
+      }),
+      prisma.message.updateMany({
+        where: { conversationId: id, senderId: { not: req.user!.id }, readAt: null, deletedAt: null },
+        data: { readAt, deliveredAt: readAt },
+      }),
+    ]);
+    emitToConversation(id, 'conversation:read', {
+      conversationId: id,
+      readerId: req.user!.id,
+      readAt: readAt.toISOString(),
     });
 
+    const other = conversation?.participants[0]?.user;
+
+    // The peer travels in `meta` so the message list stays a plain array for
+    // the client's infinite query, which pages by array.
     return paginated(
       res,
       rows.reverse().map((m) => ({
         id: m.id,
-        body: m.hiddenAt ? null : m.body,
+        body: m.hiddenAt || m.deletedAt ? null : m.body,
         removed: Boolean(m.hiddenAt),
+        deleted: Boolean(m.deletedAt),
         fromMe: m.senderId === req.user!.id,
-        sender: {
-          username: m.sender.username,
-          displayName: m.sender.profile?.displayName ?? m.sender.username,
-          avatarUrl: m.sender.profile?.avatarUrl ?? null,
-        },
-        attachment: m.attachmentUrl
-          ? { url: mediaUrlFor(m.attachmentUrl), name: m.attachmentName, type: m.attachmentType }
-          : null,
+        senderId: m.senderId,
+        sender: shapeSender(m.sender),
+        attachment:
+          m.attachmentUrl && !m.deletedAt
+            ? { url: mediaUrlFor(m.attachmentUrl), name: m.attachmentName, type: m.attachmentType }
+            : null,
         createdAt: m.createdAt,
+        deliveredAt: m.deliveredAt,
+        readAt: m.readAt,
       })),
       total,
       page,
       pageSize,
+      { otherUser: other ? shapePeer(other) : null },
     );
   }),
 );
@@ -335,7 +544,7 @@ const sendMessageSchema = z.object({
 /** POST /api/messages/conversations/:id — send a message. */
 messagingRouter.post(
   '/conversations/:id',
-  requireVerified,
+  messageLimiter,
   validateParams(z.object({ id: uuidSchema })),
   validateBody(sendMessageSchema),
   asyncHandler(async (req, res) => {
@@ -345,24 +554,11 @@ messagingRouter.post(
     const participant = await assertConversationMember(id, req.user!.id);
     if (participant.blocked) throw ApiError.forbidden('You have blocked this conversation.');
 
-    const restriction = await activeRestriction(req.user!.id);
-    if (restriction) {
-      throw new ApiError(
-        403,
-        'MESSAGING_RESTRICTED',
-        `Messaging is paused on your account: ${restriction.reason}`,
-        { expiresAt: restriction.expiresAt?.toISOString() ?? null },
-      );
-    }
+    await assertNotRestricted(req.user!.id);
 
-    const notice = await moderateMessage(req.user!.id, body);
-
-    // A conversation is only writable while an exchange between the members is
-    // not cancelled, or if there is no exchange attached at all.
     const conversation = await prisma.conversation.findUnique({
       where: { id },
       select: {
-        exchangeId: true,
         participants: {
           where: { userId: { not: req.user!.id } },
           select: { userId: true, blocked: true },
@@ -371,48 +567,58 @@ messagingRouter.post(
     });
 
     for (const other of conversation?.participants ?? []) {
-      if (other.blocked) {
-        throw ApiError.forbidden('That member has blocked this conversation.');
-      }
+      if (other.blocked) throw ApiError.forbidden('That member has blocked this conversation.');
     }
+    await assertNoBlock(
+      req.user!.id,
+      (conversation?.participants ?? []).map((p) => p.userId),
+    );
+
+    const notice = await moderateMessage(req.user!.id, body);
+
+    const online = onlineUserIds();
+    const now = new Date();
+    const recipients = conversation?.participants ?? [];
+    // "Delivered" means it reached an account that is connected right now.
+    const deliveredAt = recipients.some((r) => online.has(r.userId)) ? now : null;
 
     const message = await prisma.message.create({
-      data: { conversationId: id, senderId: req.user!.id, body },
+      data: { conversationId: id, senderId: req.user!.id, body, deliveredAt },
       select: {
         id: true,
         body: true,
         senderId: true,
         createdAt: true,
-        sender: { select: { username: true, profile: { select: { displayName: true, avatarUrl: true } } } },
+        deliveredAt: true,
+        sender: { select: senderSelect },
       },
     });
 
-    await prisma.conversation.update({ where: { id }, data: { lastMessageAt: new Date() } });
+    await prisma.conversation.update({ where: { id }, data: { lastMessageAt: now } });
 
     const payload = {
       id: message.id,
       body: message.body,
       removed: false,
+      deleted: false,
       fromMe: false,
       senderId: message.senderId,
-      sender: {
-        username: message.sender.username,
-        displayName: message.sender.profile?.displayName ?? message.sender.username,
-        avatarUrl: message.sender.profile?.avatarUrl ?? null,
-      },
+      sender: shapeSender(message.sender),
       attachment: null,
       createdAt: message.createdAt,
+      deliveredAt: message.deliveredAt,
+      readAt: null,
     };
     emitToConversation(id, 'message:new', { conversationId: id, message: payload });
 
-    for (const other of conversation?.participants ?? []) {
+    for (const other of recipients) {
       await createNotification(
         {
           userId: other.userId,
           type: 'MESSAGE',
           title: `New message from @${req.user!.username}`,
           body: body.length > 120 ? `${body.slice(0, 120)}…` : body,
-          link: `/messages?c=${id}`,
+          link: `/messages/${id}`,
           metadata: { conversationId: id },
         },
         emitToUser,
@@ -426,24 +632,37 @@ messagingRouter.post(
 /** POST /api/messages/conversations/:id/attachment — multipart file message. */
 messagingRouter.post(
   '/conversations/:id/attachment',
-  requireVerified,
+  messageLimiter,
   validateParams(z.object({ id: uuidSchema })),
   uploadAttachment.single('file'),
   asyncHandler(async (req, res) => {
     const { id } = res.locals.params as { id: string };
-    await assertConversationMember(id, req.user!.id);
+    const participant = await assertConversationMember(id, req.user!.id);
+    if (participant.blocked) throw ApiError.forbidden('You have blocked this conversation.');
     if (!req.file) throw ApiError.badRequest('Choose a file to send.');
 
+    await assertNotRestricted(req.user!.id);
+
     const stored = await storeFile(req.file, 'attachments', req.user!.id);
+    const online = onlineUserIds();
+    const now = new Date();
+
+    const recipients = await prisma.conversationParticipant.findMany({
+      where: { conversationId: id, userId: { not: req.user!.id } },
+      select: { userId: true },
+    });
+    await assertNoBlock(req.user!.id, recipients.map((r) => r.userId));
+    const deliveredAt = recipients.some((r) => online.has(r.userId)) ? now : null;
 
     const message = await prisma.message.create({
       data: {
         conversationId: id,
         senderId: req.user!.id,
-        body: req.body?.caption?.slice(0, 4000) || `Shared ${stored.name}`,
+        body: String(req.body?.caption ?? '').slice(0, 4000) || `Shared ${stored.name}`,
         attachmentUrl: stored.key,
         attachmentName: stored.name,
         attachmentType: stored.mimeType,
+        deliveredAt,
       },
       select: {
         id: true,
@@ -453,31 +672,45 @@ messagingRouter.post(
         attachmentName: true,
         attachmentType: true,
         createdAt: true,
-        sender: { select: { username: true, profile: { select: { displayName: true, avatarUrl: true } } } },
+        deliveredAt: true,
+        sender: { select: senderSelect },
       },
     });
 
-    await prisma.conversation.update({ where: { id }, data: { lastMessageAt: new Date() } });
+    await prisma.conversation.update({ where: { id }, data: { lastMessageAt: now } });
 
     const payload = {
       id: message.id,
       body: message.body,
       removed: false,
+      deleted: false,
       fromMe: false,
       senderId: message.senderId,
-      sender: {
-        username: message.sender.username,
-        displayName: message.sender.profile?.displayName ?? message.sender.username,
-        avatarUrl: message.sender.profile?.avatarUrl ?? null,
-      },
+      sender: shapeSender(message.sender),
       attachment: {
         url: mediaUrlFor(message.attachmentUrl),
         name: message.attachmentName,
         type: message.attachmentType,
       },
       createdAt: message.createdAt,
+      deliveredAt: message.deliveredAt,
+      readAt: null,
     };
     emitToConversation(id, 'message:new', { conversationId: id, message: payload });
+
+    for (const other of recipients) {
+      await createNotification(
+        {
+          userId: other.userId,
+          type: 'MESSAGE',
+          title: `New message from @${req.user!.username}`,
+          body: `Shared ${stored.name}`,
+          link: `/messages/${id}`,
+          metadata: { conversationId: id },
+        },
+        emitToUser,
+      );
+    }
 
     return created(res, payload);
   }),
@@ -490,9 +723,22 @@ messagingRouter.post(
   asyncHandler(async (req, res) => {
     const { id } = res.locals.params as { id: string };
     await assertConversationMember(id, req.user!.id);
-    await prisma.conversationParticipant.update({
-      where: { conversationId_userId: { conversationId: id, userId: req.user!.id } },
-      data: { lastReadAt: new Date() },
+
+    const readAt = new Date();
+    await prisma.$transaction([
+      prisma.conversationParticipant.update({
+        where: { conversationId_userId: { conversationId: id, userId: req.user!.id } },
+        data: { lastReadAt: readAt },
+      }),
+      prisma.message.updateMany({
+        where: { conversationId: id, senderId: { not: req.user!.id }, readAt: null, deletedAt: null },
+        data: { readAt, deliveredAt: readAt },
+      }),
+    ]);
+    emitToConversation(id, 'conversation:read', {
+      conversationId: id,
+      readerId: req.user!.id,
+      readAt: readAt.toISOString(),
     });
     return ok(res, { read: true });
   }),
@@ -512,6 +758,37 @@ messagingRouter.post(
       data: { muted },
     });
     return ok(res, { muted });
+  }),
+);
+
+/**
+ * DELETE /api/messages/messages/:id — the sender deletes their own message.
+ * The row is kept as a tombstone so the other side's history does not shift.
+ */
+messagingRouter.delete(
+  '/messages/:id',
+  validateParams(z.object({ id: uuidSchema })),
+  asyncHandler(async (req, res) => {
+    const { id } = res.locals.params as { id: string };
+    const message = await prisma.message.findUnique({
+      where: { id },
+      select: { id: true, senderId: true, conversationId: true, deletedAt: true },
+    });
+    // Only the sender may delete, and anyone else gets the same 404 as a message
+    // that does not exist, so ids cannot be probed.
+    if (!message || message.senderId !== req.user!.id) {
+      throw ApiError.notFound('That message could not be found.');
+    }
+
+    if (!message.deletedAt) {
+      await prisma.message.update({ where: { id }, data: { deletedAt: new Date(), body: '' } });
+    }
+
+    emitToConversation(message.conversationId, 'message:deleted', {
+      conversationId: message.conversationId,
+      messageId: id,
+    });
+    return noContent(res);
   }),
 );
 
@@ -538,23 +815,25 @@ messagingRouter.get(
       select: { conversationId: true, lastReadAt: true },
     });
 
-    let total = 0;
-    for (const p of participants) {
-      total += await prisma.message.count({
-        where: {
-          conversationId: p.conversationId,
-          senderId: { not: req.user!.id },
-          hiddenAt: null,
-          ...(p.lastReadAt ? { createdAt: { gt: p.lastReadAt } } : {}),
-        },
-      });
-    }
+    const counts = await Promise.all(
+      participants.map((p) =>
+        prisma.message.count({
+          where: {
+            conversationId: p.conversationId,
+            senderId: { not: req.user!.id },
+            hiddenAt: null,
+            deletedAt: null,
+            ...(p.lastReadAt ? { createdAt: { gt: p.lastReadAt } } : {}),
+          },
+        }),
+      ),
+    );
 
-    return ok(res, { unread: total });
+    return ok(res, { unread: counts.reduce((total, n) => total + n, 0) });
   }),
 );
 
-/** POST /api/messages/users/:username/block and unblock */
+/** POST /api/messages/users/:username/block — stop someone contacting you. */
 messagingRouter.post(
   '/users/:username/block',
   validateParams(z.object({ username: z.string().trim().min(3).max(30) })),
@@ -565,7 +844,7 @@ messagingRouter.post(
 
     const target = await prisma.user.findUnique({
       where: { username: username.toLowerCase() },
-      select: { id: true, username: true },
+      select: { id: true },
     });
     if (!target) throw ApiError.notFound('That member could not be found.');
     if (target.id === req.user!.id) throw ApiError.badRequest('You cannot block yourself.');
@@ -580,6 +859,7 @@ messagingRouter.post(
   }),
 );
 
+/** DELETE /api/messages/users/:username/block — undo a block. */
 messagingRouter.delete(
   '/users/:username/block',
   validateParams(z.object({ username: z.string().trim().min(3).max(30) })),
@@ -601,13 +881,15 @@ messagingRouter.get(
   '/blocked',
   asyncHandler(async (req, res) => {
     const blocks = await prisma.userBlock.findMany({
-      where: { blockerId: req.user!.id, NOT: { reason: 'DISMISSED_MATCH' } },
+      where: { blockerId: req.user!.id, ...REAL_BLOCK },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
         reason: true,
         createdAt: true,
-        blocked: { select: { username: true, profile: { select: { displayName: true, avatarUrl: true } } } },
+        blocked: {
+          select: { username: true, profile: { select: { displayName: true, avatarUrl: true } } },
+        },
       },
     });
 
@@ -647,11 +929,7 @@ messagingRouter.get(
 
     return ok(res, {
       restriction: restriction
-        ? {
-            reason: restriction.reason,
-            expiresAt: restriction.expiresAt,
-            active: true,
-          }
+        ? { reason: restriction.reason, expiresAt: restriction.expiresAt, active: true }
         : null,
       events,
       appealPath: '/contact',

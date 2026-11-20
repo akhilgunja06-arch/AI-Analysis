@@ -12,7 +12,11 @@ import { useAuth } from '@/providers/AuthProvider';
 import { ApiError } from '@/lib/api';
 
 const schema = z.object({
-  email: z.string().min(1, 'Enter your email address.').email('That does not look like an email address.'),
+  identifier: z
+    .string()
+    .trim()
+    .min(1, 'Enter your email address or username.')
+    .max(120, 'That is too long to be an email address or username.'),
   password: z.string().min(1, 'Enter your password.'),
   remember: z.boolean().optional(),
 });
@@ -33,7 +37,7 @@ export default function LoginPage() {
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { email: '', password: '', remember: true },
+    defaultValues: { identifier: '', password: '', remember: true },
   });
 
   const from = (location.state as { from?: string } | null)?.from;
@@ -41,7 +45,7 @@ export default function LoginPage() {
   const onSubmit = async (values: FormValues) => {
     setFormError(null);
     try {
-      const user = await signIn(values.email, values.password);
+      const user = await signIn(values.identifier, values.password);
       toast.success('Signed in', `Welcome back, ${user.username}.`);
       navigate(from ?? '/dashboard', { replace: true });
     } catch (error) {
@@ -53,8 +57,8 @@ export default function LoginPage() {
           setFormError('Too many attempts. Please wait a minute and try again.');
         } else if (error.isValidation) {
           for (const issue of error.issues) {
-            if (issue.path === 'email' || issue.path === 'password') {
-              setError(issue.path as 'email' | 'password', { message: issue.message });
+            if (issue.path === 'identifier' || issue.path === 'password') {
+              setError(issue.path as 'identifier' | 'password', { message: issue.message });
             }
           }
           setFormError(error.issues.length === 0 ? error.message : null);
@@ -84,13 +88,12 @@ export default function LoginPage() {
         {formError ? <FormError message={formError} /> : null}
 
         <TextField
-          label="Email address"
-          type="email"
-          autoComplete="email"
+          label="Email or username"
+          autoComplete="username"
           placeholder="you@example.com"
           required
-          error={errors.email?.message}
-          {...register('email')}
+          error={errors.identifier?.message}
+          {...register('identifier')}
         />
 
         <TextField

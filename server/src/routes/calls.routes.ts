@@ -4,8 +4,9 @@ import { prisma } from '../lib/prisma';
 import { asyncHandler, validateBody, validateParams, validateQuery } from '../lib/http';
 import { created, ok, paginated, parsePagination } from '../lib/respond';
 import { ApiError } from '../lib/errors';
-import { requireAuth, requireVerified } from '../middleware/auth';
+import { requireAuth } from '../middleware/auth';
 import { uuidSchema } from '../lib/validation';
+import { blockBetween } from '../lib/blockFilters';
 import { emitToUser } from '../realtime';
 import { createNotification } from '../services/notification.service';
 import { buildIceServers, webrtcSummary } from '../services/webrtc.service';
@@ -49,7 +50,7 @@ const startCallSchema = z.object({
 /** POST /api/calls — start a call and ring the other member. */
 callsRouter.post(
   '/',
-  requireVerified,
+  requireAuth,
   validateBody(startCallSchema),
   asyncHandler(async (req, res) => {
     const { username, type } = req.body as z.infer<typeof startCallSchema>;
@@ -67,13 +68,7 @@ callsRouter.post(
     if (callee.id === req.user!.id) throw ApiError.badRequest('You cannot call yourself.');
 
     const block = await prisma.userBlock.findFirst({
-      where: {
-        OR: [
-          { blockerId: req.user!.id, blockedId: callee.id },
-          { blockerId: callee.id, blockedId: req.user!.id },
-        ],
-        NOT: { reason: 'DISMISSED_MATCH' },
-      },
+      where: blockBetween(req.user!.id, callee.id),
       select: { id: true },
     });
     if (block) throw ApiError.forbidden('Calling is not available with that member.');
