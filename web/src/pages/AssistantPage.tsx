@@ -28,6 +28,7 @@ import {
   useAiConversations,
   useCreateAiConversation,
   useDeleteAiConversation,
+  useAiConnectionStatus,
   useIntegrationStatus,
   useRetryAiMessage,
   useSendAiMessage,
@@ -76,6 +77,10 @@ export default function AssistantPage() {
   const thread = useAiConversation(activeId);
   const aiEnabled = integrations?.aiAssistance.enabled ?? false;
   const modelName = integrations?.aiAssistance.model ?? null;
+  // A live probe, so a rejected key is distinguishable from a missing one.
+  const connection = useAiConnectionStatus(aiEnabled);
+  const connectionCode = connection.data?.code ?? null;
+  const connectionFailed = aiEnabled && connection.isSuccess && !connection.data?.ok;
 
   useEffect(() => {
     if (activeId === undefined && conversations && conversations.length > 0) {
@@ -176,6 +181,23 @@ export default function AssistantPage() {
           </Button>
         </div>
       </div>
+
+      {connectionFailed ? (
+        <div className="mt-6">
+          <NotConfiguredState
+            title="The assistant is configured but the provider refused the request"
+            description={
+              <>
+                {connection.data?.message} Reported code:{' '}
+                <code className="font-mono">{connectionCode}</code>. The model is{' '}
+                <code className="font-mono">{connection.data?.model}</code>. Check the server log for the
+                upstream status. This page never invents an answer.
+              </>
+            }
+            integration={connectionCode ?? 'AI_API_KEY'}
+          />
+        </div>
+      ) : null}
 
       {!aiEnabled ? (
         <div className="mt-6">

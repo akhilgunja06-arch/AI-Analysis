@@ -154,6 +154,23 @@ export const uploadLimiter = rateLimit({
 });
 
 /**
+ * Per-member budget for assistant turns. Every request costs a provider call,
+ * so an unthrottled member can burn the account's quota or the operator's
+ * spend. AI_RATE_LIMIT_MAX existed in the schema but was never applied to a
+ * route, which left the assistant effectively unlimited.
+ */
+export const aiLimiter = rateLimit({
+  windowMs: env.RATE_LIMIT_WINDOW_MS,
+  max: env.AI_RATE_LIMIT_MAX,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => env.isTest,
+  keyGenerator: (req) => req.user?.id ?? req.ip ?? 'unknown',
+  handler: (_req, _res, next) =>
+    next(ApiError.tooMany('You have reached the assistant limit for now. Please try again later.')),
+});
+
+/**
  * Discovery search runs on every keystroke after the client debounce, so it
  * needs its own budget. Scoped per member rather than per IP: several members
  * can share a campus NAT address.

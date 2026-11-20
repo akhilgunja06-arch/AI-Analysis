@@ -144,20 +144,37 @@ if (isProd) {
  * Resolves the assistant configuration from either naming scheme.
  *
  * AI_PROVIDER=none is an explicit opt-out and short-circuits everything else.
- * An unsupported provider is reported rather than silently downgraded, so an
- * operator who writes AI_PROVIDER=openai is told Groq is the supported backend
- * instead of wondering why answers never arrive.
+ *
+ * Only Groq is implemented: `groq.service.ts` speaks the OpenAI-compatible
+ * Groq endpoint and nothing else. Accepting `openai` or `anthropic` here used
+ * to enable the assistant anyway, which sent that provider's key to
+ * api.groq.com — a credential leak and a confusing 401. Those values are now
+ * rejected with an explicit message instead of being silently honoured.
  */
+const SUPPORTED_AI_PROVIDERS = ['none', 'groq'] as const;
+
 const aiProviderRaw = raw.AI_PROVIDER;
+const aiProviderUnsupported = !SUPPORTED_AI_PROVIDERS.includes(
+  aiProviderRaw as (typeof SUPPORTED_AI_PROVIDERS)[number],
+);
+
 const aiKeyFromAi = raw.AI_API_KEY.trim();
 const aiKeyFromGroq = raw.GROQ_API_KEY.trim();
-const aiKey = aiProviderRaw === 'none' ? '' : aiKeyFromAi || aiKeyFromGroq;
+const aiKey =
+  aiProviderRaw === 'none' || aiProviderUnsupported ? '' : aiKeyFromAi || aiKeyFromGroq;
 const aiModel = raw.AI_MODEL.trim() || raw.GROQ_MODEL.trim() || 'openai/gpt-oss-120b';
 
 const aiMissingEnv: string[] = [];
-if (aiProviderRaw !== 'none') {
+if (aiProviderRaw !== 'none' && !aiProviderUnsupported) {
   if (!aiKeyFromAi && !aiKeyFromGroq) aiMissingEnv.push('AI_API_KEY');
   if (!raw.AI_MODEL.trim() && !raw.GROQ_MODEL.trim()) aiMissingEnv.push('AI_MODEL');
+}
+
+if (aiProviderUnsupported) {
+  console.error(
+    `\n[config] AI_PROVIDER="${aiProviderRaw}" is not supported. Only "groq" (or "none" to disable) ` +
+      `is implemented; the assistant will stay disabled. Set AI_PROVIDER=groq with a Groq key.\n`,
+  );
 }
 
 export const env = {
@@ -175,6 +192,9 @@ export const env = {
   // assistant does not require deleting the secret.
   aiEnabled: Boolean(aiKey),
   aiProvider: aiKey ? 'groq' : 'none',
+  /** The value the operator wrote, kept so the UI can explain a rejection. */
+  aiProviderRequested: aiProviderRaw,
+  aiProviderUnsupported,
   groqApiKey: aiKey,
   groqModel: aiModel,
   searchApiKey: raw.SEARCH_API_KEY.trim(),

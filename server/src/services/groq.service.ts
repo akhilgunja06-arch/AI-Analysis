@@ -194,7 +194,12 @@ export async function completeChat(turns: ChatTurn[], options?: CompletionOption
  * Probes the provider with a one-token request so the UI can state, truthfully,
  * whether the assistant will actually answer. Never throws.
  */
-export async function probeProvider(): Promise<{ ok: boolean; model: string; detail?: string }> {
+export async function probeProvider(): Promise<{
+  ok: boolean;
+  model: string;
+  detail?: string;
+  status?: number;
+}> {
   if (!assistantConfigured()) {
     return { ok: false, model: env.groqModel, detail: 'AI_API_KEY is not set' };
   }
@@ -202,7 +207,9 @@ export async function probeProvider(): Promise<{ ok: boolean; model: string; det
     await completeChat([{ role: 'user', content: 'Reply with the single word: ready' }]);
     return { ok: true, model: env.groqModel };
   } catch (err) {
-    const detail = err instanceof ApiError ? err.code : 'unknown';
-    return { ok: false, model: env.groqModel, detail };
+    if (err instanceof ApiError) {
+      return { ok: false, model: env.groqModel, detail: err.code, status: err.status };
+    }
+    return { ok: false, model: env.groqModel, detail: 'unknown' };
   }
 }

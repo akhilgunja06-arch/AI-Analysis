@@ -870,6 +870,30 @@ export function useIntegrationStatus() {
   });
 }
 
+/** A live probe of the assistant provider, not a cached configuration flag. */
+export type AiConnectionStatus = {
+  provider: string;
+  requestedProvider: string;
+  providerSupported: boolean;
+  model: string | null;
+  ok: boolean;
+  code: string | null;
+  message: string;
+  requiredEnv: string[];
+  latencyMs: number | null;
+};
+
+export function useAiConnectionStatus(enabled = true) {
+  return useQuery({
+    queryKey: ['ai', 'connection'],
+    queryFn: () => api.get<AiConnectionStatus>('/ai/connection'),
+    select: (res) => res.data,
+    enabled,
+    staleTime: 0,
+    retry: false,
+  });
+}
+
 export function useSubmitSupportTicket() {
   return useMutation({
     mutationFn: (input: { name: string; email: string; subject: string; message: string }) =>

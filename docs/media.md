@@ -150,9 +150,9 @@ own notifications, favourites and AI history.
 | `MAX_VIDEO_UPLOAD_BYTES` | 200 MB | Videos |
 | `MEDIA_SIGNED_URL_TTL_SECONDS` | 900 | Signed-URL lifetime |
 | `MEDIA_UPLOAD_TTL_MINUTES` | 120 | Abandoned resumable-upload lifetime |
-| `AI_PROVIDER` | `none` | `none`, `openai` or `anthropic` |
+| `AI_PROVIDER` | `none` | `none` or `groq` (only Groq is implemented) |
 | `AI_API_KEY` | empty | Required only when a provider is set |
-| `AI_MODEL` | empty | Optional model override |
+| `AI_MODEL` | `openai/gpt-oss-120b` | Groq model id; see console.groq.com/docs/models |
 
 Uploads are rate-limited per user. Signed-URL secrets are derived server-side and
 never sent to the browser.

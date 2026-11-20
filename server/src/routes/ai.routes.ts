@@ -7,10 +7,10 @@ import { ApiError } from '../lib/errors';
 import { requireAuth } from '../middleware/auth';
 import { uuidSchema } from '../lib/validation';
 import { env } from '../config/env';
-import { completeChat, type ChatTurn } from '../services/groq.service';
+import { completeChat, probeProvider, type ChatTurn } from '../services/groq.service';
 import { reviewText } from '../services/moderation.service';
 import { enforceModeration } from '../services/enforcement.service';
-import { writeLimiter } from '../middleware/errors';
+import { aiLimiter, writeLimiter } from '../middleware/errors';
 import { logger } from '../lib/logger';
 
 export const aiRouter = Router();
@@ -139,6 +139,7 @@ aiRouter.post(
   '/conversations/:id/messages',
   requireAuth,
   writeLimiter,
+  aiLimiter,
   validateParams(z.object({ id: uuidSchema })),
   validateBody(sendMessageSchema),
   asyncHandler(async (req, res) => {
@@ -304,5 +305,51 @@ aiRouter.delete(
     await assertOwnedConversation(id, req.user!.id);
     await prisma.aiConversation.delete({ where: { id } });
     return noContent(res);
+  }),
+);
+
+/**
+ * GET /api/ai/connection — proves the provider actually answers.
+ *
+ * `GET /api/support/status` only reports that a key exists; it cannot tell an
+ * operator whether that key works, whether the model name is valid, or whether
+ * the account is rate limited. This endpoint makes one real, minimal call and
+ * reports the outcome. It never returns the key, and it caches nothing so a
+ * fixed key is picked up on the next request.
+ */
+aiRouter.get(
+  '/connection',
+  asyncHandler(async (_req, res) => {
+    const startedAt = Date.now();
+
+    if (!env.aiEnabled) {
+      return ok(res, {
+        provider: env.aiProvider,
+        requestedProvider: env.aiProviderRequested,
+        providerSupported: !env.aiProviderUnsupported,
+        model: null,
+        ok: false,
+        code: 'AI_NOT_CONFIGURED',
+        message: env.aiProviderUnsupported
+          ? `AI_PROVIDER="${env.aiProviderRequested}" is not supported. Set AI_PROVIDER=groq.`
+          : 'Set AI_API_KEY on the server to enable the assistant.',
+        requiredEnv: env.aiProviderUnsupported ? ['AI_PROVIDER', 'AI_API_KEY'] : ['AI_API_KEY'],
+        latencyMs: null,
+      });
+    }
+
+    const result = await probeProvider();
+    return ok(res, {
+      provider: env.aiProvider,
+      requestedProvider: env.aiProviderRequested,
+      providerSupported: true,
+      model: env.groqModel,
+      ok: result.ok,
+      code: result.ok ? null : result.detail ?? 'AI_UPSTREAM_ERROR',
+      message: result.ok
+        ? 'The assistant answered a live request.'
+        : 'The assistant could not answer. Check the server logs for the upstream status.',
+      latencyMs: result.ok ? Date.now() - startedAt : null,
+    });
   }),
 );

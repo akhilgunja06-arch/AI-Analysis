@@ -295,3 +295,87 @@ describe('skill learning agent', () => {
     expect(res.status).toBe(401);
   });
 });
+
+/**
+ * The assistant reports its own configuration honestly.
+ *
+ * The suite runs with no AI key, which is exactly the state an operator lands
+ * in before setting one. These assertions pin the contract the UI relies on:
+ * a clear code and the name of the variable to set, never a fabricated answer.
+ */
+describe('assistant configuration reporting', () => {
+  it('reports AI_NOT_CONFIGURED when no key is set', async () => {
+    const res = await api(baseUrl, 'GET', '/api/ai/connection', { token: alice.token });
+    expect(res.status).toBe(200);
+    const data = res.body.data as {
+      provider: string;
+      ok: boolean;
+      code: string | null;
+      requiredEnv: string[];
+      model: string | null;
+    };
+    expect(data.ok).toBe(false);
+    expect(data.code).toBe('AI_NOT_CONFIGURED');
+    expect(data.provider).toBe('none');
+    expect(data.model).toBeNull();
+    expect(data.requiredEnv).toContain('AI_API_KEY');
+  });
+
+  it('never exposes the key in the response', async () => {
+    const res = await api(baseUrl, 'GET', '/api/ai/connection', { token: alice.token });
+    const serialised = JSON.stringify(res.body);
+    expect(serialised).not.toMatch(/gsk_/);
+    expect(serialised).not.toMatch(/api[_-]?key"\s*:\s*"[^"]+"/i);
+  });
+
+  it('requires authentication', async () => {
+    const res = await api(baseUrl, 'GET', '/api/ai/connection');
+    expect(res.status).toBe(401);
+  });
+});
+
+/** Search must behave for the navbar: real rows, no self, no private columns. */
+describe('member search contract', () => {
+  it('finds a member by partial username', async () => {
+    const res = await api(baseUrl, 'GET', `/api/members/search?q=${bob.username.slice(0, 3)}`, {
+      token: alice.token,
+    });
+    expect(res.status).toBe(200);
+    const rows = res.body.data as { username: string }[];
+    expect(rows.some((row) => row.username === bob.username)).toBe(true);
+  });
+
+  it('never returns the caller', async () => {
+    const res = await api(baseUrl, 'GET', `/api/members/search?q=${alice.username}`, {
+      token: alice.token,
+    });
+    expect(res.status).toBe(200);
+    const rows = res.body.data as { username: string }[];
+    expect(rows.some((row) => row.username === alice.username)).toBe(false);
+  });
+
+  it('omits email and password columns', async () => {
+    const res = await api(baseUrl, 'GET', '/api/members/search?q=a', { token: alice.token });
+    const serialised = JSON.stringify(res.body);
+    expect(serialised).not.toContain('passwordHash');
+    expect(serialised).not.toContain('@example.com');
+  });
+
+  it('returns an empty array rather than an error for no matches', async () => {
+    const res = await api(baseUrl, 'GET', '/api/members/search?q=zzzznobody', {
+      token: alice.token,
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual([]);
+  });
+
+  it('rejects an empty query', async () => {
+    const res = await api(baseUrl, 'GET', '/api/members/search?q=', { token: alice.token });
+    expect(res.status).toBe(422);
+  });
+
+  it('requires authentication', async () => {
+    const res = await api(baseUrl, 'GET', '/api/members/search?q=a');
+    expect(res.status).toBe(401);
+  });
+});
