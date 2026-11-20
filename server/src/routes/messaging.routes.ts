@@ -4,15 +4,23 @@ import { prisma } from '../lib/prisma';
 import { asyncHandler, validateBody, validateParams, validateQuery } from '../lib/http';
 import { created, noContent, ok, paginated, parsePagination } from '../lib/respond';
 import { ApiError } from '../lib/errors';
-import { requireAuth, requireVerified } from '../middleware/auth';
+import { requireAuth, requireRestrictedAuth, requireVerified } from '../middleware/auth';
 import { uuidSchema } from '../lib/validation';
 import { createNotification } from '../services/notification.service';
 import { emitToConversation, emitToUser } from '../realtime';
 import { mediaUrlFor, storeFile, uploadAttachment } from '../services/storage.service';
+import { reviewText } from '../services/moderation.service';
+import { activeRestriction, enforceModeration } from '../services/enforcement.service';
 
 export const messagingRouter = Router();
 
-messagingRouter.use(requireAuth);
+// The moderation standing route is reachable while suspended: a member needs to
+// read why they were restricted in order to appeal.
+const restrictedAuthPaths = new Set(['/moderation']);
+messagingRouter.use((req, res, next) => {
+  if (restrictedAuthPaths.has(req.path)) return requireRestrictedAuth(req, res, next);
+  return requireAuth(req, res, next);
+});
 
 /**
  * Every read and write goes through this check. A member can only ever touch a
@@ -34,6 +42,29 @@ async function assertConversationMember(conversationId: string, userId: string) 
 /** Deterministic key so a 1:1 conversation can never be duplicated. */
 function directKey(a: string, b: string): string {
   return [a, b].sort().join(':');
+}
+
+/**
+ * Runs the study-only policy and applies any consequence. Returns the WARN
+ * notice to attach to the response, or null when the message is clean.
+ * A BLOCK is thrown as a 422 with a reason the sender can act on.
+ */
+async function moderateMessage(userId: string, body: string): Promise<string | null> {
+  const decision = await reviewText({ userId, text: body, surface: 'MESSAGE' });
+  if (decision.verdict === 'BLOCK') {
+    await enforceModeration(userId, decision);
+    throw new ApiError(422, 'MESSAGE_BLOCKED', decision.reason, {
+      category: decision.category,
+      severity: decision.severity,
+    });
+  }
+  if (decision.verdict === 'WARN') {
+    const outcome = await enforceModeration(userId, decision);
+    return outcome.restricted
+      ? `${decision.reason} Your messaging has been paused temporarily.`
+      : decision.reason;
+  }
+  return null;
 }
 
 const startConversationSchema = z.object({
@@ -159,6 +190,7 @@ messagingRouter.get(
                 userId: true,
                 user: {
                   select: {
+                    id: true,
                     username: true,
                     profile: { select: { displayName: true, avatarUrl: true } },
                   },
@@ -211,6 +243,7 @@ messagingRouter.get(
             : other?.user.profile?.displayName ?? other?.user.username ?? 'Conversation',
           otherUser: other
             ? {
+                id: other.user.id,
                 username: other.user.username,
                 displayName: other.user.profile?.displayName ?? other.user.username,
                 avatarUrl: other.user.profile?.avatarUrl ?? null,
@@ -312,6 +345,18 @@ messagingRouter.post(
     const participant = await assertConversationMember(id, req.user!.id);
     if (participant.blocked) throw ApiError.forbidden('You have blocked this conversation.');
 
+    const restriction = await activeRestriction(req.user!.id);
+    if (restriction) {
+      throw new ApiError(
+        403,
+        'MESSAGING_RESTRICTED',
+        `Messaging is paused on your account: ${restriction.reason}`,
+        { expiresAt: restriction.expiresAt?.toISOString() ?? null },
+      );
+    }
+
+    const notice = await moderateMessage(req.user!.id, body);
+
     // A conversation is only writable while an exchange between the members is
     // not cancelled, or if there is no exchange attached at all.
     const conversation = await prisma.conversation.findUnique({
@@ -374,7 +419,7 @@ messagingRouter.post(
       );
     }
 
-    return created(res, payload);
+    return created(res, { ...payload, ...(notice ? { moderationNotice: notice } : {}) });
   }),
 );
 
@@ -577,5 +622,39 @@ messagingRouter.get(
         blockedAt: b.createdAt,
       })),
     );
+  }),
+);
+
+/**
+ * GET /api/messages/moderation — the caller's own moderation standing.
+ *
+ * Deliberately scoped to the caller: no member can read another member's
+ * moderation history. Only the decision reason and dates are returned, never
+ * the content that triggered them.
+ */
+messagingRouter.get(
+  '/moderation',
+  asyncHandler(async (req, res) => {
+    const [restriction, events] = await Promise.all([
+      activeRestriction(req.user!.id),
+      prisma.moderationEvent.findMany({
+        where: { userId: req.user!.id },
+        orderBy: { createdAt: 'desc' },
+        take: 20,
+        select: { id: true, verdict: true, category: true, reason: true, surface: true, createdAt: true },
+      }),
+    ]);
+
+    return ok(res, {
+      restriction: restriction
+        ? {
+            reason: restriction.reason,
+            expiresAt: restriction.expiresAt,
+            active: true,
+          }
+        : null,
+      events,
+      appealPath: '/contact',
+    });
   }),
 );

@@ -111,6 +111,49 @@ export function initRealtime(server: HttpServer): IOServer {
       });
     });
 
+    /**
+     * WebRTC signalling relay.
+     *
+     * The client never names a recipient user id. It names a call id, and the
+     * server looks up the other participant from the CallSession row. That means
+     * a forged payload cannot deliver an SDP offer or ICE candidate to an
+     * unrelated member, and a member who is not on the call cannot inject
+     * signalling into it.
+     */
+    const relaySignal = async (
+      event: string,
+      payload: { callId?: string } & Record<string, unknown>,
+      ack?: (ok: boolean) => void,
+    ) => {
+      if (!payload?.callId) return ack?.(false);
+      try {
+        const call = await prisma.callSession.findUnique({
+          where: { id: payload.callId },
+          select: { callerId: true, calleeId: true, status: true },
+        });
+        if (!call || (call.callerId !== userId && call.calleeId !== userId)) {
+          return ack?.(false);
+        }
+        if (call.status === 'ENDED' || call.status === 'REJECTED' || call.status === 'MISSED') {
+          return ack?.(false);
+        }
+        const otherId = call.callerId === userId ? call.calleeId : call.callerId;
+        io?.to(`user:${otherId}`).emit(event, { ...payload, fromUserId: userId });
+        return ack?.(true);
+      } catch (err) {
+        logger.error('socket.signal_failed', { userId, event, err });
+        return ack?.(false);
+      }
+    };
+
+    socket.on('call:offer', (payload, ack) => void relaySignal('call:offer', payload, ack));
+    socket.on('call:answer', (payload, ack) => void relaySignal('call:answer', payload, ack));
+    socket.on('call:ice', (payload, ack) => void relaySignal('call:ice', payload, ack));
+
+    // A hang-up over the socket is a convenience; the REST endpoint is what
+    // actually writes the call record.
+    socket.on('call:hangup', (payload) => void relaySignal('call:hangup', payload));
+
     socket.on('disconnect', (reason) => {
       logger.debug('socket.disconnected', { userId, reason });
     });

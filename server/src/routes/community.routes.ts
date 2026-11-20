@@ -615,60 +615,6 @@ communityRouter.delete(
   }),
 );
 
-/** POST /api/community/report — report a post or comment. */
-communityRouter.post(
-  '/report',
-  requireVerified,
-  validateBody(
-    z.object({
-      targetType: z.enum(['COMMUNITY_POST', 'COMMUNITY_COMMENT']),
-      targetId: uuidSchema,
-      reason: z.enum(['SPAM', 'HARASSMENT', 'INAPPROPRIATE_CONTENT', 'FAKE_PROFILE', 'NO_SHOW', 'OTHER']),
-      details: z.string().trim().max(1000).optional(),
-    }),
-  ),
-  asyncHandler(async (req, res) => {
-    const body = req.body as {
-      targetType: 'COMMUNITY_POST' | 'COMMUNITY_COMMENT';
-      targetId: string;
-      reason: string;
-      details?: string;
-    };
-
-    const authorId =
-      body.targetType === 'COMMUNITY_POST'
-        ? (await prisma.communityPost.findUnique({ where: { id: body.targetId }, select: { authorId: true } }))?.authorId
-        : (await prisma.communityComment.findUnique({ where: { id: body.targetId }, select: { authorId: true } }))?.authorId;
-
-    if (!authorId) throw ApiError.notFound('The content you are reporting could not be found.');
-    if (authorId === req.user!.id) throw ApiError.badRequest('You cannot report your own content.');
-
-    const duplicate = await prisma.report.findFirst({
-      where: {
-        reporterId: req.user!.id,
-        targetType: body.targetType,
-        targetId: body.targetId,
-        status: { in: ['OPEN', 'UNDER_REVIEW'] },
-      },
-      select: { id: true },
-    });
-    if (duplicate) throw ApiError.conflict('You have already reported this content.');
-
-    const report = await prisma.report.create({
-      data: {
-        reporterId: req.user!.id,
-        targetType: body.targetType,
-        targetId: body.targetId,
-        targetUserId: authorId,
-        reason: body.reason as never,
-        details: body.details ?? null,
-      },
-      select: { id: true, status: true, createdAt: true },
-    });
-
-    return created(res, report);
-  }),
-);
 
 /** GET /api/community/stats — real activity counts for the community header. */
 communityRouter.get(

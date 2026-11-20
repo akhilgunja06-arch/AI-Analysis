@@ -34,8 +34,17 @@ function readAccessToken(req: Request): string | null {
  * Verifies the access token, then loads the user + session from the database.
  * The role is taken from the database, never from the token or the client, so a
  * role change or suspension takes effect immediately.
+ *
+ * `allowRestricted` exists for the handful of routes a suspended member must
+ * still reach — their own moderation standing and the appeal form. Everything
+ * else keeps the default, which rejects a suspended session outright.
  */
-export async function authenticate(req: Request, _res: Response, next: NextFunction) {
+export async function authenticate(
+  req: Request,
+  _res: Response,
+  next: NextFunction,
+  options: { allowRestricted?: boolean } = {},
+) {
   try {
     const token = readAccessToken(req);
     if (!token) return next(ApiError.unauthorized('Sign in to continue.'));
@@ -60,11 +69,13 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
     if (session.userId !== payload.sub) {
       return next(ApiError.unauthorized('Your session is no longer valid. Please sign in again.'));
     }
-    if (session.user.status === 'SUSPENDED') {
-      return next(ApiError.forbidden('This account is suspended. Contact support for help.'));
-    }
-    if (session.user.status === 'DEACTIVATED') {
-      return next(ApiError.forbidden('This account has been deactivated.'));
+    if (!options.allowRestricted) {
+      if (session.user.status === 'SUSPENDED') {
+        return next(ApiError.forbidden('This account is suspended. Contact support for help.'));
+      }
+      if (session.user.status === 'DEACTIVATED') {
+        return next(ApiError.forbidden('This account has been deactivated.'));
+      }
     }
 
     req.user = {
@@ -78,6 +89,19 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
   } catch (err) {
     return next(err);
   }
+}
+
+/**
+ * Authenticates a suspended or deactivated member so they can read their own
+ * standing and appeal. Never use this to gate ordinary member features.
+ */
+export function requireRestrictedAuth(req: Request, res: Response, next: NextFunction) {
+  if (req.user) return next();
+  return authenticate(req, res, (err?: unknown) => {
+    if (err) return next(err);
+    if (!req.user) return next(ApiError.unauthorized('Sign in to continue.'));
+    return next();
+  }, { allowRestricted: true });
 }
 
 /** Attaches the user when a valid token is present, but never rejects. */

@@ -6,6 +6,7 @@ import { ApiError } from '@/lib/api';
 import { ThemeProvider } from '@/providers/ThemeProvider';
 import { AuthProvider } from '@/providers/AuthProvider';
 import { RealtimeProvider } from '@/providers/RealtimeProvider';
+import { CallProvider } from '@/providers/CallProvider';
 import { ToastProvider } from '@/components/ui/Toast';
 import { App } from './App';
 import './styles/index.css';
@@ -43,7 +44,9 @@ createRoot(container).render(
           <ToastProvider>
             <AuthProvider>
               <RealtimeProvider>
-                <App />
+                <CallProvider>
+                  <App />
+                </CallProvider>
               </RealtimeProvider>
             </AuthProvider>
           </ToastProvider>

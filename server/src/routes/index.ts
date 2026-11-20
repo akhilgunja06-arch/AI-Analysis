@@ -18,7 +18,9 @@ import { supportRouter } from './support.routes';
 import { mediaRouter } from './media.routes';
 import { favoritesRouter } from './favorites.routes';
 import { aiRouter } from './ai.routes';
+import { callsRouter } from './calls.routes';
 import { dashboardRouter, publicStatsRouter } from './dashboard.routes';
+import { reportsRouter } from './reports.routes';
 
 export const apiRouter = Router();
 
@@ -40,12 +42,14 @@ apiRouter.use('/matches', matchesRouter);
 apiRouter.use('/exchanges', exchangesRouter);
 apiRouter.use('/sessions', sessionsRouter);
 apiRouter.use('/messages', messagingRouter);
+apiRouter.use('/reports', reportsRouter);
 apiRouter.use('/notifications', notificationsRouter);
 apiRouter.use('/reviews', reviewsRouter);
 apiRouter.use('/settings', settingsRouter);
 apiRouter.use('/learning', learningRouter);
 apiRouter.use('/favorites', favoritesRouter);
 apiRouter.use('/ai', aiRouter);
+apiRouter.use('/calls', callsRouter);
 
 // Milestones and notes hang off exchanges but live in their own router.
 apiRouter.use('/', milestonesRouter);
@@ -64,8 +68,8 @@ apiRouter.get('/', (_req, res) => {
       groups: [
         'auth', 'stats', 'skills', 'members', 'community', 'support',
         'profile', 'dashboard', 'matches', 'exchanges', 'sessions',
-        'messages', 'notifications', 'reviews', 'settings', 'learning',
-        'media', 'favorites', 'ai', 'admin',
+        'messages', 'notifications', 'reviews', 'reports', 'settings', 'learning',
+        'media', 'favorites', 'ai', 'calls', 'admin',
       ],
     },
   });

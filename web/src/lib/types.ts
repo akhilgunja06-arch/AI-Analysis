@@ -428,7 +428,7 @@ export type Conversation = {
   id: string;
   isGroup: boolean;
   title: string;
-  otherUser: { username: string; displayName: string; avatarUrl: string | null } | null;
+  otherUser: { id: string; username: string; displayName: string; avatarUrl: string | null } | null;
   lastMessage: { id: string; preview: string; createdAt: string; fromMe: boolean } | null;
   lastMessageAt: string;
   unreadCount: number;
@@ -707,7 +707,9 @@ export type IntegrationStatus = {
   emailDelivery: { provider: string; enabled: boolean };
   objectStorage: { provider: string };
   realtime: { provider: string; enabled: boolean };
-  aiAssistance: { provider: string; enabled: boolean };
+  aiAssistance: { provider: string; enabled: boolean; model?: string | null };
+  webrtc?: { stun: number; turn: number; enabled: boolean };
+  emailOtp?: { enabled: boolean; deliveryProvider: string };
   oauthProviders: string[];
 };
 
@@ -742,4 +744,89 @@ export type AiConversationDetail = {
   userId: string;
   title: string;
   messages: AiMessage[];
+};
+
+export type AiSendResult = {
+  userMessage: AiMessage;
+  assistantMessage: AiMessage;
+  model: string;
+  usage: { promptTokens: number; completionTokens: number; totalTokens: number } | null;
+  finishReason: string | null;
+  notice?: string;
+};
+
+// ------------------------------------------------------- calls (WebRTC)
+
+export type CallType = 'AUDIO' | 'VIDEO';
+export type CallStatus = 'RINGING' | 'ACCEPTED' | 'REJECTED' | 'MISSED' | 'ENDED' | 'FAILED';
+
+export type CallParticipant = {
+  username: string;
+  displayName: string;
+  avatarUrl: string | null;
+};
+
+export type IceServer = {
+  urls: string | string[];
+  username?: string;
+  credential?: string;
+};
+
+export type CallSession = {
+  id: string;
+  callerId: string;
+  calleeId: string;
+  type: CallType;
+  status: CallStatus;
+  startedAt: string;
+  acceptedAt: string | null;
+  endedAt: string | null;
+  durationSeconds: number | null;
+  role: 'CALLER' | 'CALLEE';
+  caller: CallParticipant;
+  callee: CallParticipant;
+  iceServers: IceServer[];
+};
+
+export type CallHistoryEntry = {
+  id: string;
+  type: CallType;
+  status: CallStatus;
+  direction: 'INCOMING' | 'OUTGOING';
+  other: CallParticipant;
+  startedAt: string;
+  endedAt: string | null;
+  durationSeconds: number | null;
+};
+
+export type IncomingCall = {
+  callId: string;
+  type: CallType;
+  from: CallParticipant;
+  startedAt: string;
+  ringTimeoutSeconds: number;
+};
+
+// ------------------------------------------------------------ moderation
+
+export type ModerationStanding = {
+  restriction: { reason: string; expiresAt: string | null; active: boolean } | null;
+  events: {
+    id: string;
+    verdict: 'ALLOW' | 'WARN' | 'BLOCK';
+    category: string;
+    reason: string;
+    surface: string;
+    createdAt: string;
+  }[];
+  appealPath: string;
+};
+
+// ------------------------------------------------------ email OTP sign-up
+
+export type RegistrationVerification = {
+  required: boolean;
+  emailSent: boolean;
+  expiresInSeconds: number;
+  resendAfterSeconds: number;
 };

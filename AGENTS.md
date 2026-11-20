@@ -60,6 +60,15 @@ DATABASE_URL="postgresql://skillspring:skillspring_dev@127.0.0.1:5432/skillsprin
 
 - API responses are `{ data: ... }` (paginated adds `meta`). Errors are
   `{ error: { code, message } }`.
+- Reporting has one endpoint: `POST /api/reports` (`server/src/routes/reports.routes.ts`).
+  `targetType` is `USER`, `MESSAGE`, `REVIEW`, `COMMUNITY_POST` or
+  `COMMUNITY_COMMENT`; each type has its own authorization rule inside
+  `resolveTarget`, and a target the caller may not see returns the same `404` as
+  one that does not exist. Do not add a per-feature report route — an earlier
+  `/api/community/report` duplicated this and rejected the `OFF_TOPIC` reason the
+  community UI offers. When a page needs to report something it calls
+  `useReportContent()` and passes a real id; `ReportReason` lives in
+  `prisma/schema.prisma`, so a new UI reason needs a migration.
 - Support messages use one form: `web/src/components/ContactForm.tsx`. It is
   rendered on both `/help#contact` and `/contact` so validation, prefill and the
   submit path stay identical. Do not re-implement the form on a page.

@@ -71,9 +71,46 @@ const envSchema = z.object({
   // Optional explicit paths; when unset the system PATH is used.
   FFPROBE_PATH: z.string().optional().default('ffprobe'),
 
-  AI_PROVIDER: z.enum(['none', 'openai', 'anthropic']).default('none'),
+  AI_PROVIDER: z.enum(['none', 'groq', 'openai', 'anthropic']).default('none'),
   AI_API_KEY: z.string().optional().default(''),
   AI_MODEL: z.string().optional().default(''),
+
+  // --- Groq study assistant ---
+  // Read on the server only. Never forwarded to the browser.
+  GROQ_API_KEY: z.string().optional().default(''),
+  GROQ_MODEL: z.string().optional().default('llama-3.3-70b-versatile'),
+  GROQ_BASE_URL: z.string().optional().default('https://api.groq.com/openai/v1'),
+  GROQ_MAX_TOKENS: z.coerce.number().int().positive().max(8192).default(2048),
+  GROQ_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.4),
+  GROQ_TIMEOUT_MS: z.coerce.number().int().positive().default(45_000),
+  // Per-member request budget for the assistant, over RATE_LIMIT_WINDOW_MS.
+  AI_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(30),
+
+  // --- Email OTP verification ---
+  OTP_TTL_SECONDS: z.coerce.number().int().positive().default(300),
+  OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().positive().default(60),
+  OTP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+  // When true a new account stays PENDING_VERIFICATION until the OTP is
+  // confirmed. Turn off only for local experiments, never in production.
+  REQUIRE_EMAIL_OTP: z
+    .string()
+    .default('true')
+    .transform((v) => v === 'true'),
+
+  // --- WebRTC signalling ---
+  // Comma-separated STUN/TURN URLs handed to the browser as ICE servers. TURN
+  // credentials stay server-side and are minted into a short-lived credential
+  // when TURN_STATIC_SECRET is set (coturn REST API scheme).
+  WEBRTC_STUN_URLS: z
+    .string()
+    .default('stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302'),
+  WEBRTC_TURN_URLS: z.string().optional().default(''),
+  WEBRTC_TURN_USERNAME: z.string().optional().default(''),
+  WEBRTC_TURN_CREDENTIAL: z.string().optional().default(''),
+  WEBRTC_TURN_STATIC_SECRET: z.string().optional().default(''),
+  WEBRTC_TURN_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
+  // How long an unanswered call keeps ringing before it is marked missed.
+  CALL_RING_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(45),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -116,7 +153,19 @@ export const env = {
   uploadDirAbs: path.resolve(process.cwd(), raw.UPLOAD_DIR),
   mediaTempDirAbs: path.resolve(process.cwd(), raw.MEDIA_TEMP_DIR),
   mediaSigningSecret: raw.MEDIA_SIGNING_SECRET || raw.ACCESS_TOKEN_SECRET,
-  aiEnabled: raw.AI_PROVIDER !== 'none' && Boolean(raw.AI_API_KEY),
+  // The study assistant is live only when a Groq key is actually present.
+  aiEnabled: Boolean(raw.GROQ_API_KEY),
+  aiProvider: raw.GROQ_API_KEY ? 'groq' : 'none',
+  groqApiKey: raw.GROQ_API_KEY,
+  stunUrls: csv(raw.WEBRTC_STUN_URLS),
+  turnUrls: csv(raw.WEBRTC_TURN_URLS),
+  webrtcConfigured: csv(raw.WEBRTC_TURN_URLS).length > 0 || csv(raw.WEBRTC_STUN_URLS).length > 0,
 };
+
+if (isProd && !raw.GROQ_API_KEY) {
+  // Not fatal: the platform works without the assistant. The API answers 501
+  // with an explicit message rather than pretending a model replied.
+  console.warn('[config] GROQ_API_KEY is not set — the AI Study Assistant will report itself as not configured.');
+}
 
 export type Env = typeof env;

@@ -13,6 +13,7 @@ import {
   LifeBuoy,
   LogOut,
   MessageSquare,
+  PhoneCall,
   Settings,
   Shield,
   Sparkles,
@@ -36,6 +37,7 @@ export const MEMBER_NAV = [
   { to: '/exchanges', label: 'Exchanges', icon: Users },
   { to: '/calendar', label: 'Calendar', icon: Calendar },
   { to: '/messages', label: 'Messages', icon: MessageSquare },
+  { to: '/calls', label: 'Calls', icon: PhoneCall },
   { to: '/learning', label: 'Learning', icon: GraduationCap },
   { to: '/favorites', label: 'Favourites', icon: Bookmark },
   { to: '/media', label: 'Media', icon: Image },
@@ -109,6 +111,20 @@ export function AppNavbar() {
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
+          <NavLink
+            to="/assistant"
+            className={({ isActive }) =>
+              cn(
+                'group inline-flex items-center gap-1.5 rounded-full bg-gradient-brand px-3 py-1.5 text-xs font-semibold text-white shadow-sm shadow-brand-600/25 transition-all hover:shadow-md hover:shadow-brand-600/35 sm:text-sm',
+                isActive && 'ring-2 ring-brand-400/60 ring-offset-2 ring-offset-[rgb(var(--ss-bg))]',
+              )
+            }
+            title="Open the AI Study Assistant"
+          >
+            <Sparkles className="h-4 w-4" aria-hidden="true" />
+            <span className="hidden sm:inline">AI Study Assistant</span>
+            <span className="sm:hidden">AI</span>
+          </NavLink>
           <ThemeToggle compact />
           <NotificationBell />
 
@@ -169,7 +185,7 @@ export function AppNavbar() {
                   className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-[rgb(var(--ss-border)/0.55)]"
                 >
                   <Bot className="h-4 w-4" aria-hidden="true" />
-                  Assistant
+                  AI Study Assistant
                 </Link>
                 <Link
                   to="/settings"
@@ -263,21 +279,19 @@ export function AppNavbar() {
                 </li>
               );
             })}
-            <li>
+            <li className="col-span-2">
               <NavLink
                 to="/assistant"
                 onClick={() => setMenuOpen(false)}
                 className={({ isActive }) =>
                   cn(
-                    'flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
-                    isActive
-                      ? 'bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300'
-                      : 'hover:bg-[rgb(var(--ss-border)/0.5)]',
+                    'flex items-center gap-2 rounded-lg bg-gradient-brand px-3 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90',
+                    isActive && 'ring-2 ring-brand-400/60',
                   )
                 }
               >
-                <Bot className="h-4 w-4" aria-hidden="true" />
-                Assistant
+                <Sparkles className="h-4 w-4" aria-hidden="true" />
+                AI Study Assistant
               </NavLink>
             </li>
             {isStaff ? (

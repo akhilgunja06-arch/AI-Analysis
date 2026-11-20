@@ -4,9 +4,14 @@ import { prisma } from '../lib/prisma';
 import { asyncHandler, validateBody, validateParams, validateQuery } from '../lib/http';
 import { created, noContent, ok, paginated } from '../lib/respond';
 import { ApiError } from '../lib/errors';
-import { requireAuth } from '../middleware/auth';
+import { requireAuth, requireVerified } from '../middleware/auth';
 import { uuidSchema } from '../lib/validation';
 import { env } from '../config/env';
+import { completeChat, type ChatTurn } from '../services/groq.service';
+import { reviewText } from '../services/moderation.service';
+import { enforceModeration } from '../services/enforcement.service';
+import { writeLimiter } from '../middleware/errors';
+import { logger } from '../lib/logger';
 
 export const aiRouter = Router();
 
@@ -19,10 +24,13 @@ aiRouter.use(requireAuth);
  * writing is scoped to the authenticated owner on every request — a
  * conversation id from another account behaves as if it does not exist.
  *
- * Generating an assistant reply requires a configured model provider. When none
- * is configured the endpoint records the member's message and returns an
- * explicit 501 rather than inventing a reply or claiming a model answered.
+ * Generating an assistant reply requires GROQ_API_KEY. When it is missing the
+ * endpoint records the member's message and returns an explicit 501 rather than
+ * inventing a reply or claiming a model answered.
  */
+
+/** How many prior turns are replayed to the model for continuity. */
+const HISTORY_TURNS = 20;
 
 /** Confirms the conversation belongs to the caller, or throws a 404. */
 async function assertOwnedConversation(conversationId: string, userId: string) {
@@ -129,12 +137,29 @@ const sendMessageSchema = z.object({
  */
 aiRouter.post(
   '/conversations/:id/messages',
+  requireVerified,
+  writeLimiter,
   validateParams(z.object({ id: uuidSchema })),
   validateBody(sendMessageSchema),
   asyncHandler(async (req, res) => {
     const { id } = res.locals.params as { id: string };
     const { content } = req.body as z.infer<typeof sendMessageSchema>;
     await assertOwnedConversation(id, req.user!.id);
+
+    // The assistant is study-only for the same reason peer chat is. A prompt
+    // that would be blocked in a conversation is blocked here too.
+    const decision = await reviewText({
+      userId: req.user!.id,
+      text: content,
+      surface: 'AI_PROMPT',
+    });
+    if (decision.verdict === 'BLOCK') {
+      await enforceModeration(req.user!.id, decision);
+      throw new ApiError(422, 'AI_PROMPT_BLOCKED', decision.reason, {
+        category: decision.category,
+        severity: decision.severity,
+      });
+    }
 
     const userMessage = await prisma.aiMessage.create({
       data: { conversationId: id, userId: req.user!.id, role: 'USER', content },
@@ -160,17 +185,113 @@ aiRouter.post(
       throw new ApiError(
         501,
         'AI_NOT_CONFIGURED',
-        'The assistant is not configured on this deployment. Your message was saved, but no reply was generated.',
-        { requiredEnv: ['AI_PROVIDER', 'AI_API_KEY', 'AI_MODEL'], savedMessageId: userMessage.id },
+        'The AI Study Assistant is not configured on this deployment. Your message was saved, but no reply was generated.',
+        { requiredEnv: ['GROQ_API_KEY'], savedMessageId: userMessage.id },
       );
     }
 
-    throw new ApiError(
-      501,
-      'AI_NOT_IMPLEMENTED',
-      'A model provider is configured but this build does not yet call it. Your message was saved.',
-      { provider: env.AI_PROVIDER, savedMessageId: userMessage.id },
+    // Replay the recent thread so the model has context, oldest first.
+    const priorMessages = await prisma.aiMessage.findMany({
+      where: { conversationId: id, id: { not: userMessage.id } },
+      orderBy: { createdAt: 'desc' },
+      take: HISTORY_TURNS,
+      select: { role: true, content: true },
+    });
+
+    const turns: ChatTurn[] = [
+      ...priorMessages.reverse().map((m) => ({
+        role: (m.role === 'ASSISTANT' ? 'assistant' : 'user') as 'assistant' | 'user',
+        content: m.content,
+      })),
+      { role: 'user', content },
+    ];
+
+    let completion;
+    try {
+      completion = await completeChat(turns);
+    } catch (err) {
+      // The member's message is already saved, so a provider failure never
+      // loses their question — the client can retry against the same thread.
+      logger.warn('ai.completion_failed', { conversationId: id, err });
+      throw err;
+    }
+
+    const assistantMessage = await prisma.aiMessage.create({
+      data: {
+        conversationId: id,
+        userId: req.user!.id,
+        role: 'ASSISTANT',
+        content: completion.content,
+      },
+      select: { id: true, role: true, content: true, createdAt: true },
+    });
+
+    await prisma.aiConversation.update({ where: { id }, data: { updatedAt: new Date() } });
+
+    return created(res, {
+      userMessage,
+      assistantMessage,
+      model: completion.model,
+      usage: completion.usage ?? null,
+      finishReason: completion.finishReason,
+      ...(decision.verdict === 'WARN' ? { notice: decision.reason } : {}),
+    });
+  }),
+);
+
+/** POST /api/ai/conversations/:id/retry — regenerate the last assistant reply. */
+aiRouter.post(
+  '/conversations/:id/retry',
+  requireVerified,
+  writeLimiter,
+  validateParams(z.object({ id: uuidSchema })),
+  asyncHandler(async (req, res) => {
+    const { id } = res.locals.params as { id: string };
+    await assertOwnedConversation(id, req.user!.id);
+
+    if (!env.aiEnabled) {
+      throw new ApiError(501, 'AI_NOT_CONFIGURED', 'The AI Study Assistant is not configured on this deployment.', {
+        requiredEnv: ['GROQ_API_KEY'],
+      });
+    }
+
+    const history = await prisma.aiMessage.findMany({
+      where: { conversationId: id },
+      orderBy: { createdAt: 'desc' },
+      take: HISTORY_TURNS + 1,
+      select: { id: true, role: true, content: true },
+    });
+    history.reverse();
+
+    // Drop a trailing assistant reply; the retry replaces it.
+    const last = history[history.length - 1];
+    if (last?.role === 'ASSISTANT') {
+      await prisma.aiMessage.delete({ where: { id: last.id } });
+      history.pop();
+    }
+    if (history.length === 0) {
+      throw ApiError.badRequest('There is no question to retry yet.');
+    }
+
+    const completion = await completeChat(
+      history.map((m) => ({
+        role: (m.role === 'ASSISTANT' ? 'assistant' : 'user') as 'assistant' | 'user',
+        content: m.content,
+      })),
     );
+
+    const assistantMessage = await prisma.aiMessage.create({
+      data: { conversationId: id, userId: req.user!.id, role: 'ASSISTANT', content: completion.content },
+      select: { id: true, role: true, content: true, createdAt: true },
+    });
+    await prisma.aiConversation.update({ where: { id }, data: { updatedAt: new Date() } });
+
+    return created(res, {
+      assistantMessage,
+      model: completion.model,
+      usage: completion.usage ?? null,
+      finishReason: completion.finishReason,
+    });
   }),
 );
 

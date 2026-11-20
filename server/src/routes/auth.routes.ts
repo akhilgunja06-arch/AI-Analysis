@@ -33,6 +33,8 @@ import { env } from '../config/env';
 import { logger } from '../lib/logger';
 import { passwordResetEmail, verificationEmail } from '../services/email.service';
 import { recordAudit } from '../services/audit.service';
+import { isDisposableEmail } from '../lib/disposable-email';
+import { consumeEmailOtp, issueEmailOtp, pruneExpiredOtps, verifyEmailOtp } from '../services/otp.service';
 
 export const authRouter = Router();
 
@@ -42,7 +44,7 @@ const RESERVED_USERNAMES = new Set([
 ]);
 
 const registerSchema = z.object({
-  email: emailSchema,
+  email: emailSchema.refine((e) => !isDisposableEmail(e), 'Use a permanent email address, not a temporary inbox.'),
   username: usernameSchema.refine((u) => !RESERVED_USERNAMES.has(u), 'That username is reserved.'),
   password: passwordSchema,
   displayName: displayNameSchema,
@@ -159,6 +161,19 @@ authRouter.post(
 
     const delivery = await verificationEmail(email, displayName, user.verificationToken);
 
+    // A six-digit code is issued alongside the link: the code is what the
+    // sign-up screen asks for, the link stays available for email clients that
+    // render it. Both authorise the same account activation.
+    const otp = await issueEmailOtp({
+      userId: user.createdUser.id,
+      email,
+      displayName,
+      purpose: 'EMAIL_VERIFICATION',
+    }).catch((err) => {
+      logger.warn('otp.issue_failed_on_register', { userId: user.createdUser.id, err });
+      return null;
+    });
+
     await recordAudit({
       actorId: user.createdUser.id,
       action: 'auth.registered',
@@ -175,8 +190,15 @@ authRouter.post(
       user: shapeSessionUser(user.createdUser),
       accessToken: session.accessToken,
       emailDelivery: delivery.delivered ? 'sent' : 'not_sent',
+      verification: {
+        required: env.REQUIRE_EMAIL_OTP,
+        emailSent: Boolean(otp?.delivered),
+        expiresInSeconds: otp?.expiresInSeconds ?? env.OTP_TTL_SECONDS,
+        resendAfterSeconds: otp?.resendAfterSeconds ?? env.OTP_RESEND_COOLDOWN_SECONDS,
+      },
       // Development convenience only: real deployments deliver by email.
       ...(env.isProd ? {} : { devVerificationToken: user.verificationToken }),
+      ...(env.isProd || !otp?.devCode ? {} : { devOtpCode: otp.devCode }),
     });
   }),
 );
@@ -342,6 +364,86 @@ authRouter.get(
 );
 
 // -------------------------------------------------------- email verification
+
+const otpVerifySchema = z.object({
+  email: emailSchema,
+  code: z.string().trim().regex(/^\d{6}$/, 'Enter the six-digit code from your email.'),
+});
+
+/**
+ * POST /api/auth/verify-otp — activate an account with the emailed code.
+ * Public: the code itself is the credential, and the account is not usable
+ * until it is confirmed.
+ */
+authRouter.post(
+  '/verify-otp',
+  authLimiter,
+  validateBody(otpVerifySchema),
+  asyncHandler(async (req, res) => {
+    const { email, code } = req.body as z.infer<typeof otpVerifySchema>;
+
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: { id: true, emailVerifiedAt: true, status: true, username: true },
+    });
+    // Same response for an unknown address, so this cannot enumerate accounts.
+    if (!user) {
+      throw ApiError.badRequest('That code is not valid. Request a new one.');
+    }
+    if (user.emailVerifiedAt) {
+      return ok(res, { verified: true, alreadyVerified: true });
+    }
+
+    await verifyEmailOtp({ userId: user.id, code });
+    void pruneExpiredOtps();
+
+    await recordAudit({
+      actorId: user.id,
+      action: 'auth.email_verified_otp',
+      entityType: 'User',
+      entityId: user.id,
+      summary: `Email verified by one-time code for @${user.username}`,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+
+    return ok(res, { verified: true, alreadyVerified: false });
+  }),
+);
+
+/**
+ * POST /api/auth/resend-otp — issue a new code, subject to the resend cooldown.
+ * Always the same response so it cannot be used to enumerate accounts.
+ */
+authRouter.post(
+  '/resend-otp',
+  authLimiter,
+  validateBody(emailOnlySchema),
+  asyncHandler(async (req, res) => {
+    const { email } = req.body as z.infer<typeof emailOnlySchema>;
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: { id: true, status: true, emailVerifiedAt: true, profile: { select: { displayName: true } } },
+    });
+
+    const response = { message: 'If that address needs verification, a new code is on its way.' };
+    if (!user || user.emailVerifiedAt) return ok(res, response);
+
+    const otp = await issueEmailOtp({
+      userId: user.id,
+      email,
+      displayName: user.profile?.displayName ?? 'there',
+      purpose: 'EMAIL_VERIFICATION',
+    });
+
+    return ok(res, {
+      ...response,
+      expiresInSeconds: otp.expiresInSeconds,
+      resendAfterSeconds: otp.resendAfterSeconds,
+      ...(env.isProd || !otp.devCode ? {} : { devOtpCode: otp.devCode }),
+    });
+  }),
+);
 
 authRouter.post(
   '/verify-email',
